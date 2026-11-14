@@ -1,6 +1,6 @@
 {
   "name": "@landrop/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "LANDrop for Mac: runs the LANDrop host from the menu bar.",
   "author": "LANDrop",
@@ -9,7 +9,8 @@
     "build": "esbuild src/main.ts --bundle --platform=node --format=cjs --target=node22 --external:electron --external:bufferutil --external:utf-8-validate --outfile=dist/main.cjs",
     "start": "electron .",
     "dist": "electron-builder --mac",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "icons": "electron scripts/make-icons.cjs"
   },
   "devDependencies": {
     "@landrop/lan-server": "*",
@@ -42,10 +43,12 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.productivity",
-      "identity": null,
+      "identity": "-",
       "extendInfo": {
         "LSUIElement": true
-      }
+      },
+      "icon": "assets/icon.png",
+      "hardenedRuntime": false
     },
     "artifactName": "LANDrop-mac-${arch}.${ext}"
   }

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LANDrop</title>
+  <meta name="description" content="Chat and share files of any size with every phone and computer on your Wi-Fi. Nothing leaves your network.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #1d1d1f;
+      --muted: #6e6e73;
+      --card: #f5f5f7;
+      --line: rgba(0, 0, 0, 0.08);
+      --blue: #007aff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #000000; --fg: #f5f5f7; --muted: #98989d; --card: #1c1c1e; --line: rgba(255, 255, 255, 0.1); --blue: #0a84ff; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--fg);
+      font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    main { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+    a { color: var(--blue); }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; }
+    .brand img { width: 32px; height: 32px; }
+    .hero { text-align: center; padding: 56px 0 40px; }
+    h1 { font-size: clamp(36px, 7vw, 64px); line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 16px; }
+    .lead { font-size: clamp(18px, 2.4vw, 22px); color: var(--muted); max-width: 640px; margin: 0 auto 32px; }
+    .button {
+      display: inline-flex; align-items: center; gap: 8px; background: var(--blue); color: #fff; text-decoration: none;
+      font-weight: 600; padding: 14px 26px; border-radius: 999px; font-size: 17px;
+    }
+    .button:hover { filter: brightness(1.08); }
+    .fine { color: var(--muted); font-size: 14px; margin-top: 12px; }
+    section { padding: 48px 0; border-top: 1px solid var(--line); }
+    h2 { font-size: clamp(26px, 4vw, 34px); letter-spacing: -0.01em; margin: 0 0 24px; text-align: center; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .card { background: var(--card); border-radius: 18px; padding: 22px; }
+    .card h3 { margin: 0 0 6px; font-size: 18px; }
+    .card p { margin: 0; color: var(--muted); font-size: 15px; }
+    .step { font-size: 13px; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+    .help { max-width: 680px; margin: 0 auto; }
+    details { background: var(--card); border-radius: 14px; padding: 16px 20px; margin-bottom: 12px; }
+    summary { cursor: pointer; font-weight: 600; }
+    details p { color: var(--muted); font-size: 15px; margin: 10px 0 0; }
+    footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 14px; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="brand"><img src="icon.svg" alt="">LANDrop</div>
+      <a href="https://github.com/engineer-dilnawaz/landdrop">GitHub</a>
+    </header>
+
+    <div class="hero">
+      <h1>Share anything with every<br>device on your Wi-Fi.</h1>
+      <p class="lead">Chat and share files of any size between iPhones, Android phones and computers. Nothing goes to the internet: it all stays on your network.</p>
+      <a class="button" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg">
+        Download for Mac
+      </a>
+      <p class="fine">For Macs with Apple silicon (M1 and newer). Free. Phones need nothing installed.</p>
+    </div>
+
+    <section>
+      <h2>How it works</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="step">Step 1</div>
+          <h3>Open LANDrop on a Mac</h3>
+          <p>It sits in the menu bar and can start when you log in, so it's there whenever your Mac is awake.</p>
+        </div>
+        <div class="card">
+          <div class="step">Step 2</div>
+          <h3>Scan the QR code</h3>
+          <p>Any phone or computer on the same Wi-Fi scans it and LANDrop opens in the browser. No app store, no account.</p>
+        </div>
+        <div class="card">
+          <div class="step">Step 3</div>
+          <h3>Chat and share</h3>
+          <p>Message everyone in the group, or anyone privately. Send photos, videos and files straight across your Wi-Fi.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Made for big files</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>No size limit</h3>
+          <p>Share a 40 GB movie. Files too big to copy are streamed live from your device: others can watch or save them while you're online.</p>
+        </div>
+        <div class="card">
+          <h3>Private by design</h3>
+          <p>Messages and files travel only over your own network and are kept on your Mac. There's no cloud and no sign-up.</p>
+        </div>
+        <div class="card">
+          <h3>Every device</h3>
+          <p>iPhone, Android, iPad, Windows and Mac: anything with a web browser can join, and sees who else is around.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="help">
+      <h2>Help</h2>
+      <details>
+        <summary>The Mac says it can't verify LANDrop</summary>
+        <p>LANDrop isn't signed by Apple yet. Open it once, then go to System Settings → Privacy &amp; Security and click <strong>Open Anyway</strong>. If macOS asks whether LANDrop may accept incoming connections, click <strong>Allow</strong>, or phones can't reach it.</p>
+      </details>
+      <details>
+        <summary>A phone can't open LANDrop</summary>
+        <p>Make sure the phone is on the same Wi-Fi as the Mac, not mobile data. On Android Chrome, turn off Settings → Privacy and security → <strong>Always use secure connections</strong>; LANDrop runs on your local network without https, which that setting blocks.</p>
+      </details>
+      <details>
+        <summary>LANDrop stopped working when my Mac slept</summary>
+        <p>A sleeping Mac can't answer phones. From the menu bar icon, turn on <strong>Keep Mac Awake While Plugged In</strong>. Closing a laptop's lid still puts it to sleep.</p>
+      </details>
+    </section>
+
+    <footer>LANDrop · Everything stays on your Wi-Fi.</footer>
+  </main>
+</body>
+</html>

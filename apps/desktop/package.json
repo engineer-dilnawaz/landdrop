@@ -46,6 +46,7 @@
       "extendInfo": {
         "LSUIElement": true
       }
-    }
+    },
+    "artifactName": "LANDrop-mac-${arch}.${ext}"
   }
 }

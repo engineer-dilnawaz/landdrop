@@ -1,0 +1,27 @@
+{
+  "name": "@landrop/lan-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p .",
+    "test": "vitest run",
+    "bench": "tsx scripts/bench.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11",
+    "@fastify/websocket": "^11",
+    "@landrop/protocol": "*",
+    "fastify": "^5",
+    "tsx": "^4"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "@types/ws": "^8",
+    "typescript": "^5",
+    "vitest": "^4",
+    "ws": "^8"
+  }
+}

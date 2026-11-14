@@ -1,0 +1,10 @@
+{
+  "name": "@landrop/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc -p ." },
+  "dependencies": { "zod": "^4" },
+  "devDependencies": { "typescript": "^5" }
+}

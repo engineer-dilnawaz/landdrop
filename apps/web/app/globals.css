@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+/* iOS Messages palette. System fonts only: the app must work with no internet connection. */
+:root {
+  --background: #ffffff;
+  --foreground: #000000;
+  --muted: #8e8e93;
+  --separator: #c6c6c8;
+  --bar: #f9f9f9;
+  --bubble-other: #e9e9eb;
+  --ios-blue: #007aff;
+  --ios-green: #34c759;
+  --ios-red: #ff3b30;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #000000;
+    --foreground: #ffffff;
+    --muted: #8e8e93;
+    --separator: #38383a;
+    --bar: #1c1c1e;
+    --bubble-other: #262629;
+    --ios-blue: #0a84ff;
+    --ios-green: #30d158;
+    --ios-red: #ff453a;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-separator: var(--separator);
+  --color-bar: var(--bar);
+  --color-bubble-other: var(--bubble-other);
+  --color-ios-blue: var(--ios-blue);
+  --color-ios-green: var(--ios-green);
+  --color-ios-red: var(--ios-red);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

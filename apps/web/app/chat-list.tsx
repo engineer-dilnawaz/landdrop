@@ -1,6 +1,8 @@
 "use client";
 
-import { Avatar, GroupIcon, SidebarIcon } from "./ui";
+import { useRef } from "react";
+import { LONG_PRESS_MS } from "./bubble";
+import { Avatar, GroupIcon, HEADER_HEIGHT, PlusIcon, QrIcon, SidebarIcon, formatTime } from "./ui";
 
 export interface ChatSummary {
   id: string;
@@ -22,7 +24,10 @@ export function ChatList({
   pinned,
   onTogglePinned,
   onOpen,
+  onHold,
   onRename,
+  onInvite,
+  onNewChat,
 }: {
   chats: ChatSummary[];
   activeId?: string;
@@ -33,13 +38,22 @@ export function ChatList({
   pinned: boolean;
   onTogglePinned: () => void;
   onOpen: (id: string) => void;
+  /** Press and hold, or right-click: the chat's menu. */
+  onHold: (chat: ChatSummary) => void;
   onRename: () => void;
+  /** Shows the QR code other devices scan to join. */
+  onInvite: () => void;
+  /** Opens the list of devices to start a private chat with. */
+  onNewChat: () => void;
 }) {
   // Hidden rather than removed, so the list keeps its layout while the rail slides open.
   const railHidden = `transition-opacity ${compact ? "opacity-0" : ""}`;
+  const pressable = usePressAndHold(onOpen, onHold);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b border-separator bg-bar/80 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-xl">
+      <header
+        className={`flex items-center gap-3 border-b border-separator bg-bar/80 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-xl ${HEADER_HEIGHT}`}
+      >
         <button
           onClick={onTogglePinned}
           className="hidden size-12 shrink-0 items-center justify-center rounded-full text-ios-blue hover:bg-bubble-other md:flex"
@@ -60,6 +74,15 @@ export function ChatList({
           </p>
         </div>
         <button
+          onClick={onInvite}
+          tabIndex={compact ? -1 : undefined}
+          className={`flex size-9 shrink-0 items-center justify-center rounded-full text-ios-blue hover:bg-bubble-other ${railHidden}`}
+          aria-label="Add a device: show QR code"
+          title="Add a device"
+        >
+          <QrIcon />
+        </button>
+        <button
           onClick={onRename}
           tabIndex={compact ? -1 : undefined}
           className={`shrink-0 rounded-full ${railHidden}`}
@@ -74,7 +97,7 @@ export function ChatList({
         {chats.map((chat) => (
           <li key={chat.id}>
             <button
-              onClick={() => onOpen(chat.id)}
+              {...pressable(chat)}
               aria-current={chat.id === activeId ? "page" : undefined}
               title={compact ? chat.title : undefined}
               className={`flex w-full items-center gap-3 px-4 py-2.5 text-left ${
@@ -98,7 +121,7 @@ export function ChatList({
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <p className="line-clamp-2 text-[15px] leading-5 text-muted">
-                    {chat.preview ?? (chat.online ? "Online · tap to start a private chat" : "Tap to start a private chat")}
+                    {chat.preview ?? "No messages yet"}
                   </p>
                   {chat.unread > 0 && <UnreadBadge count={chat.unread} />}
                 </div>
@@ -106,6 +129,18 @@ export function ChatList({
             </button>
           </li>
         ))}
+        <li>
+          <button
+            onClick={onNewChat}
+            title={compact ? "Start a chat" : undefined}
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-ios-blue active:bg-bubble-other md:hover:bg-bubble-other/60"
+          >
+            <span aria-hidden className="flex size-12 shrink-0 items-center justify-center rounded-full bg-bubble-other">
+              <PlusIcon />
+            </span>
+            <span className={`text-[17px] font-semibold ${railHidden}`}>Start a chat</span>
+          </button>
+        </li>
       </ul>
     </div>
   );
@@ -146,10 +181,44 @@ export function ChatAvatar({ chat }: { chat: Pick<ChatSummary, "title" | "isGrou
 function formatListTime(at: number): string {
   const date = new Date(at);
   const today = new Date();
-  if (date.toDateString() === today.toDateString()) return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (date.toDateString() === today.toDateString()) return formatTime(at);
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
   if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
   if (today.getTime() - at < 7 * 86_400_000) return date.toLocaleDateString([], { weekday: "long" });
   return date.toLocaleDateString([], { day: "numeric", month: "numeric", year: "2-digit" });
+}
+
+/** A tap opens the chat; holding it (or right-clicking) opens its menu instead. */
+function usePressAndHold(onOpen: (id: string) => void, onHold: (chat: ChatSummary) => void) {
+  const press = useRef<{ x: number; y: number; held: boolean; timer?: ReturnType<typeof setTimeout> }>(undefined);
+  return (chat: ChatSummary) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      const p: NonNullable<typeof press.current> = { x: e.clientX, y: e.clientY, held: false };
+      p.timer = setTimeout(() => {
+        p.held = true;
+        navigator.vibrate?.(10);
+        onHold(chat);
+      }, LONG_PRESS_MS);
+      press.current = p;
+    },
+    // Scrolling the list isn't holding.
+    onPointerMove: (e: React.PointerEvent) => {
+      const p = press.current;
+      if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) clearTimeout(p.timer);
+    },
+    onPointerUp: () => clearTimeout(press.current?.timer),
+    onPointerCancel: () => clearTimeout(press.current?.timer),
+    // Right-click on computers; on Android a long press also fires this, which the timer has already handled.
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (!press.current?.held) onHold(chat);
+    },
+    onClick: () => {
+      const held = press.current?.held;
+      press.current = undefined;
+      if (!held) onOpen(chat.id);
+    },
+  });
 }

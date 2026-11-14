@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./app": "./src/app.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
@@ -12,13 +15,16 @@
   },
   "dependencies": {
     "@fastify/cors": "^11",
+    "@fastify/static": "^9.3.0",
     "@fastify/websocket": "^11",
     "@landrop/protocol": "*",
     "fastify": "^5",
+    "qrcode": "^1.5.4",
     "tsx": "^4"
   },
   "devDependencies": {
     "@types/node": "^24",
+    "@types/qrcode": "^1.5.6",
     "@types/ws": "^8",
     "typescript": "^5",
     "vitest": "^4",

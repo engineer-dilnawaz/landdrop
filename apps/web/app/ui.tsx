@@ -49,16 +49,19 @@ export function ImageViewer({
 /** iOS-style alert with a text field for choosing your name in the chat. */
 export function RenameDialog({
   current,
+  welcome = false,
   onSave,
   onCancel,
 }: {
   current: string;
+  /** First join: confirm or change the guessed name, so keeping the guess is allowed too. */
+  welcome?: boolean;
   onSave: (name: string) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(current);
   const trimmed = name.trim();
-  const canSave = trimmed.length > 0 && trimmed !== current;
+  const canSave = trimmed.length > 0 && (welcome || trimmed !== current);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
     window.addEventListener("keydown", onKey);
@@ -79,9 +82,13 @@ export function RenameDialog({
       >
         <div className="px-4 pb-4 pt-5">
           <h2 id="rename-title" className="text-[17px] font-semibold">
-            Your name
+            {welcome ? "Name this device" : "Your name"}
           </h2>
-          <p className="mt-0.5 text-[13px] text-muted">This is how everyone in the chat sees you.</p>
+          <p className="mt-0.5 text-[13px] text-muted">
+            {welcome
+              ? "Everyone in the chat sees this name. Make it easy to recognise, like “Alex’s Galaxy S24”."
+              : "This is how everyone in the chat sees you."}
+          </p>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -95,10 +102,10 @@ export function RenameDialog({
         </div>
         <div className="grid grid-cols-2 border-t border-separator text-[17px]">
           <button type="button" onClick={onCancel} className="border-r border-separator py-2.5 text-ios-blue">
-            Cancel
+            {welcome ? "Skip" : "Cancel"}
           </button>
           <button type="submit" disabled={!canSave} className="py-2.5 font-semibold text-ios-blue disabled:opacity-35">
-            Save
+            {welcome ? "Join" : "Save"}
           </button>
         </div>
       </form>
@@ -163,6 +170,55 @@ export function MessageSheet({
               Remove for everyone
             </button>
           )}
+        </div>
+        <button onClick={onClose} className="w-full rounded-[14px] bg-bar py-4 text-[20px] font-semibold text-ios-blue" autoFocus>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Press-and-hold menu for a chat in the list. Deleting only affects this device, like WhatsApp. */
+export function ChatSheet({
+  title,
+  isGroup,
+  onDelete,
+  onClose,
+}: {
+  title: string;
+  isGroup: boolean;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chat-sheet-title"
+        className="mb-[max(0.5rem,env(safe-area-inset-bottom))] flex w-full max-w-md flex-col gap-2 px-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="overflow-hidden rounded-[14px] bg-bar/95 backdrop-blur-xl">
+          <div className="px-4 py-3 text-center">
+            <p id="chat-sheet-title" className="text-[13px] font-semibold text-muted">
+              {isGroup ? "Clear the LANDrop group?" : `Delete chat with ${title}?`}
+            </p>
+            <p className="mt-0.5 text-[13px] text-muted">
+              {isGroup
+                ? "All messages so far are removed from this device. Everyone else keeps theirs."
+                : `All messages are removed from this device. ${title} keeps their copy.`}
+            </p>
+          </div>
+          <button onClick={onDelete} className="block w-full border-t border-separator py-4 text-center text-[20px] text-ios-red">
+            {isGroup ? "Clear chat" : "Delete chat"}
+          </button>
         </div>
         <button onClick={onClose} className="w-full rounded-[14px] bg-bar py-4 text-[20px] font-semibold text-ios-blue" autoFocus>
           Cancel
@@ -328,6 +384,24 @@ export const SidebarIcon = ({ pinned }: { pinned: boolean }) => (
   </svg>
 );
 
+/** Side by side on wider screens, the chat list and chat headers share one height so their borders meet. */
+export const HEADER_HEIGHT = "md:h-[72px] md:shrink-0 md:py-0";
+
+export const QrIcon = () => (
+  <svg {...iconProps} width={22} height={22}>
+    <rect x="3" y="3" width="7" height="7" rx="1" />
+    <rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" />
+    <path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h3v3h-3" />
+  </svg>
+);
+
+export const WifiIcon = () => (
+  <svg {...iconProps} width={22} height={22}>
+    <path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />
+  </svg>
+);
+
 export const PlusIcon = () => (
   <svg {...iconProps} width={18} height={18} strokeWidth={2.5}>
     <path d="M12 5v14M5 12h14" />
@@ -361,6 +435,15 @@ export function truncateLongText(text: string): string | undefined {
 }
 
 /** Day separator label, like WhatsApp: Today, Yesterday, a weekday this week, else the date. */
+const TIME_FORMAT = new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit", hourCycle: "h12" });
+
+/** "5:20 PM": always 12-hour with AM/PM, whatever the device's region uses ("17:20", "5:20 pm", "5:20 p.m."). */
+export function formatTime(at: number): string {
+  return TIME_FORMAT.formatToParts(at)
+    .map((part) => (part.type === "dayPeriod" ? part.value.replace(/\./g, "").toUpperCase() : part.value))
+    .join("");
+}
+
 export function formatDay(at: number): string {
   const date = new Date(at);
   const today = new Date();

@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# desktop app: bundled code and built installers
+/apps/desktop/dist/
+/apps/desktop/release/

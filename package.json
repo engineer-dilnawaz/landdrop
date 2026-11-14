@@ -11,7 +11,8 @@
     "build": "turbo run build",
     "start": "turbo run start",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "dist:mac": "turbo run dist --filter=@landrop/desktop"
   },
   "devDependencies": {
     "turbo": "^2"

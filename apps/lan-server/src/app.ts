@@ -1,7 +1,9 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { hostname, networkInterfaces } from "node:os";
+import type { Socket } from "node:net";
 import { PassThrough } from "node:stream";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import type { WebSocket } from "ws";
@@ -19,10 +21,12 @@ import {
   routes,
   type Attachment,
   type Device,
+  type NetworkDevice,
   type ServerEvent,
 } from "@landrop/protocol";
 import { ChatStore, HttpError } from "./chat.js";
 import { LiveFiles, type TabKey } from "./live.js";
+import { hardwareAddressOf, scanNetwork as scanHostNetwork } from "./network.js";
 import { isAllowedOrigin } from "./origin.js";
 
 export interface AppOptions {
@@ -33,12 +37,23 @@ export interface AppOptions {
   isHost?: (address: string | undefined) => boolean;
   /** How long a disconnected tab's live files wait for it to reconnect before leaving the chat. */
   liveGraceMs?: number;
+  /** The built web app. Served at "/", so devices open one address for both the app and the API. */
+  webDir?: string;
+  /** Lists the other devices on the host's network; tests substitute their own. */
+  scanNetwork?: () => Promise<NetworkDevice[]>;
+  /**
+   * What identifies the phone or computer at an address, shared by all its browsers: by default its
+   * Wi-Fi hardware address, or "host" for this machine. Tests substitute their own.
+   */
+  machineOf?: (address: string) => Promise<string | undefined>;
 }
 
 interface Session {
   device: Device;
   token: string;
   tab: TabKey;
+  /** Where the device connects from, so network scans can leave out devices already using LANDrop. */
+  address: string;
 }
 
 /**
@@ -49,6 +64,9 @@ interface Session {
 const LIVE_FIRST_PIECE_BYTES = 128 * 1024;
 const LIVE_MAX_PIECE_BYTES = 2 * 1024 * 1024;
 
+/** Network scans are reused this long, so everyone opening "Available devices" at once costs one scan. */
+const NETWORK_SCAN_TTL_MS = 15_000;
+
 type MessageParams = { id: string };
 
 export async function buildApp({
@@ -57,13 +75,18 @@ export async function buildApp({
   heartbeatMs = 15_000,
   isHost = isHostAddress,
   liveGraceMs = 10_000,
+  webDir,
+  scanNetwork = scanHostNetwork,
+  machineOf = async (address) => (isHost(address) ? "host" : hardwareAddressOf(address)),
 }: AppOptions) {
   const app = Fastify({
     // Shutdown must not wait on a client that never finishes reading a response (e.g. a sleeping phone).
     forceCloseConnections: true,
     logger: logger && {
       // Download URLs carry the session token in the query string; keep it out of logs.
-      serializers: { req: (req: FastifyRequest) => ({ method: req.method, url: req.url.split("?")[0] }) },
+      serializers: {
+        req: (req: FastifyRequest) => ({ method: req.method, url: req.url.split("?")[0], from: req.ip }),
+      },
     },
   });
 
@@ -82,6 +105,18 @@ export async function buildApp({
       if (socket.readyState === socket.OPEN) socket.send(data);
     }
   };
+
+  // A browser that never sends a readable HTTP request never reaches a route. The usual cause is one
+  // insisting on HTTPS (Chrome's "Always use secure connections"); log it so "the page won't load on
+  // that phone" can be traced. Resets are just phones dropping idle connections, so they're skipped.
+  // Runs before Fastify's own handler, which closes the socket and loses its address.
+  app.server.prependListener("clientError", (err: NodeJS.ErrnoException, socket: Socket) => {
+    if (err.code === "ECONNRESET") return;
+    app.log.warn(
+      { from: socket.remoteAddress, code: err.code },
+      "unreadable request: is that browser forcing HTTPS? LANDrop serves plain HTTP on the local network",
+    );
+  });
 
   const store = await ChatStore.open(dataDir, broadcast);
   const sendToTab = (tab: TabKey, event: ServerEvent) => {
@@ -132,12 +167,40 @@ export async function buildApp({
     if (!isAllowedOrigin(request.headers.origin)) throw new HttpError(403, "Origin not allowed");
   });
 
+  if (webDir) {
+    await app.register(fastifyStatic, {
+      root: webDir,
+      cacheControl: false, // set per file below
+      setHeaders: (res, path) => {
+        // Build assets have content hashes in their names and never change; pages must be rechecked
+        // so an updated LANDrop reaches phones on their next visit.
+        const immutable = /[\\/]_next[\\/]static[\\/]/.test(path);
+        res.setHeader("cache-control", immutable ? "public, max-age=31536000, immutable" : "no-cache");
+      },
+    });
+  }
+
   // Attachment bodies are streamed by the route itself, never buffered by a parser.
   app.addContentTypeParser("application/octet-stream", (_request, _payload, done) => done(null));
 
   // ---------- Control plane ----------
 
   app.get(routes.health, async () => ({ ok: true, protocolVersion: PROTOCOL_VERSION, host: hostname() }));
+
+  // Read on each request: the host may have changed networks since it started.
+  app.get(routes.join, async () => ({ urls: joinUrls((app.server.address() as { port: number }).port) }));
+
+  let networkScan: { at: number; devices: Promise<NetworkDevice[]> } | undefined;
+  app.get(routes.network, async (request) => {
+    authenticate(request);
+    if (!networkScan || Date.now() - networkScan.at > NETWORK_SCAN_TTL_MS) {
+      const devices = scanNetwork();
+      networkScan = { at: Date.now(), devices };
+      devices.catch(() => (networkScan = undefined)); // try again next time
+    }
+    const usingLanDrop = new Set([...sessions.values()].map((s) => s.address));
+    return { devices: (await networkScan.devices).filter((d) => !usingLanDrop.has(d.address)) };
+  });
 
   app.get(routes.ws, { websocket: true }, (socket, request) => {
     let session: Session | undefined;
@@ -179,6 +242,7 @@ export async function buildApp({
           token: randomBytes(32).toString("base64url"),
           // Scoped to the device so another device can't claim this tab's live files.
           tab: `${message.deviceId}:${message.tabId}`,
+          address: normalizeAddress(request.socket.remoteAddress),
         };
         live.tabConnected(session.tab);
         for (const other of sessions.values()) {
@@ -186,6 +250,18 @@ export async function buildApp({
         }
         sessions.set(socket, session);
         sessionByToken.set(session.token, session);
+        const { device, address } = session;
+        // Worked out after joining, so a slow lookup never delays it; lists group browsers once it's known.
+        machineOf(address)
+          .then((key) => {
+            if (!key || !sessions.has(socket)) return;
+            // Hashed: other devices only need to compare machines, not learn hardware addresses.
+            const machine = createHash("sha256").update(key).digest("hex").slice(0, 16);
+            store.setMachine(device.id, machine);
+            for (const s of sessions.values()) if (s.device.id === device.id) s.device.machine = machine;
+            broadcast({ type: "presence:update", online: online() });
+          })
+          .catch((err) => app.log.warn(err, "couldn't identify the device's machine"));
         reply({
           type: "session:welcome",
           self: session.device,
@@ -236,6 +312,16 @@ export async function buildApp({
   app.delete<{ Params: MessageParams }>(routes.message(":id"), async (request, reply) => {
     const { device } = authenticate(request);
     await store.remove(request.params.id, device.id, isHost(request.socket.remoteAddress));
+    return reply.code(204).send();
+  });
+
+  app.delete<{ Params: MessageParams }>(routes.chat(":id"), async (request, reply) => {
+    const { device } = authenticate(request);
+    const before = store.clearChat(request.params.id, device.id);
+    // Every open tab of this device drops the messages; nobody else's copy changes.
+    for (const [socket, s] of sessions) {
+      if (s.device.id === device.id) socket.send(JSON.stringify({ type: "chat:cleared", chatId: request.params.id, before } satisfies ServerEvent));
+    }
     return reply.code(204).send();
   });
 
@@ -353,12 +439,25 @@ export function parseRange(
   return start > end || start >= size ? "unsatisfiable" : { start, end };
 }
 
+/** The addresses other devices on this machine's networks can open to reach LANDrop. */
+export function joinUrls(port: number): string[] {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter((net) => net && net.family === "IPv4" && !net.internal)
+    .map((net) => `http://${net!.address}:${port}`);
+}
+
 /** True when the request comes from the machine running this server. */
 function isHostAddress(address: string | undefined): boolean {
   if (!address) return false;
-  const normalized = address.replace(/^::ffff:/, "");
+  const normalized = normalizeAddress(address);
   if (normalized === "127.0.0.1" || normalized === "::1") return true;
   return Object.values(networkInterfaces()).some((nets) => nets?.some((n) => n.address === normalized));
+}
+
+/** IPv4 clients of a dual-stack server appear as "::ffff:192.168.0.5". */
+function normalizeAddress(address: string | undefined): string {
+  return (address ?? "").replace(/^::ffff:/, "");
 }
 
 /** Builds an attachment header that can't smuggle paths, quotes or header breaks. */

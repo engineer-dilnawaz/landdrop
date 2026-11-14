@@ -13,12 +13,13 @@ import {
   SaveIcon,
   UploadProgress,
   formatBytes,
+  formatTime,
   linkify,
   truncateLongText,
 } from "./ui";
 
 export const TIME_GAP_MS = 15 * 60 * 1000;
-const LONG_PRESS_MS = 450;
+export const LONG_PRESS_MS = 450;
 const SWIPE_TRIGGER_PX = 56;
 const SWIPE_MAX_PX = 72;
 
@@ -71,7 +72,7 @@ export function Bubble({
   const shortText = message.text && !expanded ? truncateLongText(message.text) : undefined;
   // Previews only once the host has verified the bytes (or live from the sender); formats this browser can't show fall back to the file card.
   const preview = a && isAvailable(a) && !previewFailed ? previewKind(a) : undefined;
-  const time = new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const time = formatTime(message.createdAt);
   const timeTone = own ? "text-white/70" : "text-muted";
   // Messages-style corners: the last bubble of a run gets the tighter "tail" corner.
   const shape = own

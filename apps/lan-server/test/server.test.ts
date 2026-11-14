@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,9 +13,11 @@ import {
   PROTOCOL_VERSION,
   routes,
   type Message,
+  type NetworkDevice,
   type ServerEvent,
 } from "@landrop/protocol";
 import { buildApp, contentDisposition, parseRange } from "../src/app.js";
+import { hostsOf, parseNeighbours } from "../src/network.js";
 
 let base: string;
 let dataDir: string;
@@ -250,6 +252,30 @@ describe("private chats", () => {
     // A group message sent afterwards is the first thing Eve receives, so the private one never reached her.
     await api(alice, "POST", routes.messages, { chatId: GROUP_CHAT_ID, text: "hello all" });
     expect((await eve.waitFor("message:created")).message.text).toBe("hello all");
+  });
+
+  it("deletes a chat for the device that asks only: the other person keeps their copy", async () => {
+    const a = newIdentity();
+    const b = newIdentity();
+    const alice = await join_("Alice", a);
+    const aliceOtherTab = await join_("Alice", a);
+    const bob = await join_("Bob", b);
+    const eve = await join_("Eve");
+    const chatId = privateChatId(a.deviceId, b.deviceId);
+    await api(bob, "POST", routes.messages, { chatId, text: "before" });
+    await alice.waitFor("message:created");
+
+    expect((await api(eve, "DELETE", routes.chat(chatId))).status).toBe(404); // not her chat to touch
+    expect((await api(alice, "DELETE", routes.chat(chatId))).status).toBe(204);
+    // Alice's other open tab drops the messages too.
+    expect(await aliceOtherTab.waitFor("chat:cleared")).toMatchObject({ chatId });
+
+    await api(bob, "POST", routes.messages, { chatId, text: "after" });
+    await alice.waitFor("message:created", (e) => e.message.text === "after");
+    const texts = async (identity: Identity, name: string) =>
+      (await join_(name, identity)).welcome.messages.filter((m) => m.chatId === chatId).map((m) => m.text);
+    expect(await texts(a, "Alice")).toEqual(["after"]); // gone for good, but the conversation carries on
+    expect(await texts(b, "Bob")).toEqual(["before", "after"]);
   });
 
   it("keeps private history out of other devices' history, even after reconnecting", async () => {
@@ -565,6 +591,141 @@ describe("previews", () => {
     expect(parseRange("bytes=5-50", 10)).toEqual({ start: 5, end: 9 });
     expect(parseRange("bytes=0-1,4-5", 10)).toBeUndefined();
     expect(parseRange("bytes=10-", 10)).toBe("unsatisfiable");
+  });
+});
+
+describe("one address for everything", () => {
+  it("tells a page opened as localhost which network addresses phones can scan to join", async () => {
+    const { urls } = (await (await fetch(base + routes.join)).json()) as { urls: string[] };
+    const port = new URL(base).port;
+    // A phone can't open "localhost", and a wrong port would reach nothing.
+    for (const url of urls) {
+      expect(url).toMatch(new RegExp(`^http://\\d+\\.\\d+\\.\\d+\\.\\d+:${port}$`));
+      expect(url).not.toContain("127.0.0.1");
+    }
+  });
+
+  it("serves the app and the API from the same port, so phones only need one address", async () => {
+    const webDir = join(dataDir, "web");
+    await mkdir(join(webDir, "_next", "static"), { recursive: true });
+    await writeFile(join(webDir, "index.html"), "<!doctype html><title>LANDrop</title>");
+    await writeFile(join(webDir, "_next", "static", "app-3f9a.js"), "console.log(1)");
+    await app.close();
+    app = await buildApp({ dataDir, webDir });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+
+    const page = await fetch(base + "/");
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("<title>LANDrop</title>");
+    // An updated LANDrop must reach phones on their next visit…
+    expect(page.headers.get("cache-control")).toBe("no-cache");
+    // …while content-hashed build files are fetched once and never again.
+    const asset = await fetch(base + "/_next/static/app-3f9a.js");
+    expect(asset.headers.get("cache-control")).toContain("immutable");
+
+    expect((await fetch(base + routes.health)).status).toBe(200);
+    const phone = await join_("iPhone");
+    expect(phone.welcome.self.name).toBe("iPhone");
+  });
+});
+
+describe("other devices on the network", () => {
+  async function startWithScan(scan: () => Promise<NetworkDevice[]>) {
+    await app.close();
+    app = await buildApp({ dataDir, scanNetwork: scan });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+  }
+  const list = async (token?: string) =>
+    fetch(base + routes.network, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+
+  it("lists only devices not already on LANDrop, so the picker doesn't show anyone twice", async () => {
+    // Test clients connect from 127.0.0.1, so that address stands for a device using LANDrop.
+    await startWithScan(async () => [{ address: "127.0.0.1" }, { address: "192.168.0.50", name: "Living-Room-TV" }]);
+    const alice = await join_("Alice");
+    const res = await list(alice.token);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ devices: [{ address: "192.168.0.50", name: "Living-Room-TV" }] });
+  });
+
+  it("is only for devices that joined: the network's contents are not for passers-by", async () => {
+    await startWithScan(async () => [{ address: "192.168.0.50" }]);
+    expect((await list()).status).toBe(401);
+  });
+
+  it("reuses a recent scan, so many people opening the picker don't flood the network", async () => {
+    let scans = 0;
+    await startWithScan(async () => (scans++, [{ address: "192.168.0.50" }]));
+    const alice = await join_("Alice");
+    await Promise.all([list(alice.token), list(alice.token), list(alice.token)]);
+    expect(scans).toBe(1);
+  });
+
+  it("reads the neighbour tables of macOS, Windows and Linux, skipping who didn't answer", () => {
+    const mac = [
+      "? (192.168.0.1) at 30:b5:c2:5c:fd:20 on en0 ifscope [ethernet]",
+      "? (192.168.0.2) at (incomplete) on en0 ifscope [ethernet]",
+      "? (192.168.0.100) at 46:55:ef:65:44:a3 on en0 ifscope [ethernet]",
+      "? (192.168.0.255) at ff:ff:ff:ff:ff:ff on en0 ifscope [ethernet]",
+      "? (224.0.0.251) at 1:0:5e:0:0:fb on en0 ifscope permanent [ethernet]",
+    ].join("\n");
+    expect(parseNeighbours(mac).map((n) => n.address)).toEqual(["192.168.0.1", "192.168.0.100"]);
+
+    const windows = [
+      "Interface: 192.168.0.102 --- 0x5",
+      "  Internet Address      Physical Address      Type",
+      "  192.168.0.1           30-b5-c2-5c-fd-20     dynamic",
+      "  192.168.0.255         ff-ff-ff-ff-ff-ff     static",
+    ].join("\n");
+    expect(parseNeighbours(windows)).toEqual([{ address: "192.168.0.1", mac: "30:b5:c2:5c:fd:20" }]);
+
+    const linux = [
+      "IP address       HW type     Flags       HW address            Mask     Device",
+      "192.168.0.1      0x1         0x2         30:b5:c2:5c:fd:20     *        wlan0",
+      "192.168.0.7      0x1         0x0         00:00:00:00:00:00     *        wlan0",
+    ].join("\n");
+    expect(parseNeighbours(linux).map((n) => n.address)).toEqual(["192.168.0.1"]);
+  });
+
+  it("knocks on every address of a home network, but only around this machine on a huge one", () => {
+    const home = hostsOf({ address: "192.168.0.102", netmask: "255.255.255.0" });
+    expect(home).toHaveLength(254);
+    expect(home[0]).toBe("192.168.0.1");
+    expect(home.at(-1)).toBe("192.168.0.254");
+    // A /8 would be 16 million packets; the /24 around this machine is where home devices are.
+    const huge = hostsOf({ address: "10.20.30.40", netmask: "255.0.0.0" });
+    expect(huge).toHaveLength(254);
+    expect(huge[0]).toBe("10.20.30.1");
+  });
+});
+
+describe("one phone, several browsers", () => {
+  it("gives every browser on one phone the same machine id, so lists can show that phone once", async () => {
+    // Joins happen in order, so each lookup answers for the next browser to join.
+    const machines = ["4a:11:22:33:44:55", "4a:11:22:33:44:55", "9e:66:77:88:99:00"];
+    await app.close();
+    app = await buildApp({ dataDir, machineOf: async () => machines.shift() });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+
+    const samsungInternet = await join_("Samsung");
+    const samsungChrome = await join_("Android phone · Chrome");
+    const laptop = await join_("Windows PC · Edge");
+    const known = await laptop.waitFor("presence:update", (e) => e.online.filter((d) => d.machine).length === 3);
+    const machineOf = (c: Client) => known.online.find((d) => d.id === c.welcome.self.id)?.machine;
+
+    expect(machineOf(samsungInternet)).toBe(machineOf(samsungChrome));
+    expect(machineOf(laptop)).not.toBe(machineOf(samsungInternet));
+    // Others only need to compare machines; the phone's hardware address isn't handed out.
+    expect(machineOf(samsungInternet)).not.toContain("4a:11");
+
+    // Remembered while the phone is away, so it still shows once under "Not online".
+    samsungInternet.socket.close();
+    samsungChrome.socket.close();
+    const later = await join_("Mac · Safari");
+    const directory = later.welcome.directory.filter((d) => d.id !== later.welcome.self.id && d.id !== laptop.welcome.self.id);
+    expect(new Set(directory.map((d) => d.machine)).size).toBe(1);
   });
 });
 

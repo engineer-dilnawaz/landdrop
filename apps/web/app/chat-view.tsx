@@ -1,11 +1,21 @@
 "use client";
 
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { MAX_ATTACHMENT_BYTES, type Message } from "@landrop/protocol";
 import { Bubble, TIME_GAP_MS } from "./bubble";
 import { ChatAvatar } from "./chat-list";
 import type { Progress } from "./landrop";
-import { ArrowUpIcon, BackIcon, PlusIcon, formatBytes, formatDay } from "./ui";
+import { ArrowUpIcon, BackIcon, HEADER_HEIGHT, PlusIcon, formatBytes, formatDay } from "./ui";
+
+/**
+ * Browsers name every pasted screenshot or copied image "image.png"; give each a distinct,
+ * recognisable name so several pasted images can be told apart in the chat.
+ */
+function namePasted(file: File): File {
+  if (!/^image\.\w+$/.test(file.name)) return file;
+  const stamp = new Date().toLocaleString([], { dateStyle: "short", timeStyle: "medium" }).replace(/[/:]/g, ".");
+  return new File([file], `Pasted image ${stamp}${file.name.slice(file.name.lastIndexOf("."))}`, { type: file.type });
+}
 
 export interface OpenChat {
   id: string;
@@ -51,13 +61,37 @@ export function ChatView({
   onLongPress: (message: Message) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  /** Whether the view stays at the newest message as the chat grows: until the user scrolls up. */
+  const atBottomRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { text, files, replyTo } = composer;
 
   // Open at the newest message, and follow new ones as they arrive, like a chat app.
   useLayoutEffect(() => {
+    atBottomRef.current = true;
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [chat.id, messages.length]);
+
+  // Photos and videos finish loading after the chat opens and grow, pushing the newest message out
+  // of view; so does the phone keyboard opening. Stay at the bottom unless the user scrolled up.
+  useEffect(() => {
+    const scroller = scrollerRef.current!;
+    const onScroll = () => {
+      atBottomRef.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48;
+    };
+    const observer = new ResizeObserver(() => {
+      if (atBottomRef.current) scroller.scrollTop = scroller.scrollHeight;
+    });
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    observer.observe(scroller);
+    observer.observe(contentRef.current!);
+    return () => {
+      scroller.removeEventListener("scroll", onScroll);
+      observer.disconnect();
+    };
+  }, []);
 
   function showMessage(id: string) {
     const el = document.getElementById(`message-${id}`);
@@ -66,9 +100,20 @@ export function ChatView({
     el.animate([{ opacity: 0.35 }, { opacity: 1 }], { duration: 700, delay: 250 });
   }
 
+  /** Pasting an image or file anywhere in the chat attaches it, like dropping it. */
+  function attachPasted(e: React.ClipboardEvent) {
+    const pasted = [...e.clipboardData.files];
+    if (!pasted.length) return;
+    // Copied text (e.g. alongside an image from a web page) still goes into the message as usual.
+    if (!e.clipboardData.types.includes("text/plain")) e.preventDefault();
+    composer.chooseFiles(pasted.map(namePasted));
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center gap-2 border-b border-separator bg-bar/80 px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-xl">
+    <div className="flex min-h-0 flex-1 flex-col" onPaste={attachPasted}>
+      <header
+        className={`flex items-center gap-2 border-b border-separator bg-bar/80 px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-xl ${HEADER_HEIGHT}`}
+      >
         <button
           onClick={onBack}
           className="flex size-9 shrink-0 items-center justify-center text-ios-blue md:hidden"
@@ -87,8 +132,8 @@ export function ChatView({
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto px-3 pb-2 pt-3" aria-live="polite">
-        <div className="mx-auto flex max-w-2xl flex-col">
+      <main ref={scrollerRef} className="flex-1 overflow-y-auto px-3 pb-2 pt-3" aria-live="polite">
+        <div ref={contentRef} className="mx-auto flex max-w-2xl flex-col">
           {messages.length === 0 && (
             <p className="mx-auto mt-16 max-w-64 rounded-xl bg-bubble-other px-4 py-3 text-center text-[13px] text-muted">
               {chat.isGroup

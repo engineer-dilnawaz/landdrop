@@ -77,6 +77,12 @@ CREATE TABLE IF NOT EXISTS messages (
   att_sha256 TEXT
 );
 CREATE INDEX IF NOT EXISTS messages_created_at ON messages (created_at);
+CREATE TABLE IF NOT EXISTS chat_clears (
+  device_id TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  cleared_at INTEGER NOT NULL,
+  PRIMARY KEY (device_id, chat_id)
+);
 `;
 
 /** Columns added after the first release; applied to existing databases on startup. */
@@ -116,6 +122,8 @@ export class ChatStore {
       if (!existing.has(column.split(" ")[0])) db.exec(`ALTER TABLE messages ADD COLUMN ${column}`);
     }
     db.exec("CREATE INDEX IF NOT EXISTS messages_chat ON messages (chat_id, created_at)");
+    const deviceColumns = (db.prepare("PRAGMA table_info(devices)").all() as { name: string }[]).map((c) => c.name);
+    if (!deviceColumns.includes("machine")) db.exec("ALTER TABLE devices ADD COLUMN machine TEXT");
     const store = new ChatStore(db, filesDir, broadcast);
     await store.failInterruptedUploads();
     // Live files exist only in their senders' tabs, which a restart has disconnected.
@@ -152,7 +160,15 @@ export class ChatStore {
 
   /** Every device that has ever joined, with its current name and when it was last connected. */
   directory(): KnownDevice[] {
-    return this.db.prepare("SELECT id, name, last_seen AS lastSeen FROM devices").all() as unknown as KnownDevice[];
+    const rows = this.db.prepare("SELECT id, name, last_seen AS lastSeen, machine FROM devices").all() as unknown as (KnownDevice & {
+      machine: string | null;
+    })[];
+    return rows.map(({ machine, ...d }) => (machine ? { ...d, machine } : d));
+  }
+
+  /** Records which phone or computer a device (one browser) runs on. */
+  setMachine(id: string, machine: string): void {
+    this.db.prepare("UPDATE devices SET machine = ? WHERE id = ?").run(machine, id);
   }
 
   /** Records that a device was connected until now. */
@@ -172,11 +188,28 @@ export class ChatStore {
       .prepare(
         `SELECT * FROM (
            SELECT *, rowid AS seq, ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY created_at DESC, rowid DESC) AS rank
-           FROM messages WHERE chat_id = 'group' OR chat_id LIKE ?
+           FROM messages m WHERE (chat_id = 'group' OR chat_id LIKE ?)
+             AND created_at > COALESCE((SELECT cleared_at FROM chat_clears c WHERE c.device_id = ? AND c.chat_id = m.chat_id), -1)
          ) WHERE rank <= ? ORDER BY created_at, seq`,
       )
-      .all(`%${deviceId}%`, limit) as unknown as MessageRow[];
+      .all(`%${deviceId}%`, deviceId, limit) as unknown as MessageRow[];
     return rows.map(toMessage).filter((m) => this.canSee(m.chatId, deviceId));
+  }
+
+  /**
+   * Deletes a chat's history for one device, like WhatsApp's "Delete chat": it stops receiving the
+   * messages so far, while the others in the chat keep theirs. Returns the time it was cleared up to.
+   */
+  clearChat(chatId: string, deviceId: string): number {
+    if (!this.canSee(chatId, deviceId)) throw new HttpError(404, "Chat not found");
+    const before = Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO chat_clears (device_id, chat_id, cleared_at) VALUES (?, ?, ?)
+         ON CONFLICT (device_id, chat_id) DO UPDATE SET cleared_at = excluded.cleared_at`,
+      )
+      .run(deviceId, chatId, before);
+    return before;
   }
 
   createText(sender: Device, chatId: string, text: string, replyToId?: string): Message {

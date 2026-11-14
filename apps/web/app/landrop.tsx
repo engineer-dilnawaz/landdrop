@@ -15,14 +15,23 @@ import {
   type Device,
   type KnownDevice,
   type Message,
+  type NetworkDevice,
   type ServerEvent,
 } from "@landrop/protocol";
 import { ChatList, type ChatSummary } from "./chat-list";
 import { ChatView, type OpenChat } from "./chat-view";
+import { guessDeviceName } from "./device-name";
+import { DevicePicker, type PickableDevice } from "./device-picker";
+import { JoinDialog } from "./join-dialog";
 import { Sidebar } from "./sidebar";
-import { ImageViewer, MessageSheet, PlusIcon, RenameDialog, formatBytes } from "./ui";
+import { ChatSheet, ImageViewer, MessageSheet, PlusIcon, RenameDialog, formatBytes, formatTime } from "./ui";
 
 const LAN_PORT = Number(process.env.NEXT_PUBLIC_LANDROP_PORT ?? DEFAULT_LAN_PORT);
+/**
+ * The built app is served by the LAN server itself, so it talks to whatever address it was opened
+ * from. Only `next dev` serves the page separately and must point at the server's port.
+ */
+const serverHost = () => (process.env.NODE_ENV === "development" ? `${location.hostname}:${LAN_PORT}` : location.host);
 const HASH_SLICE_BYTES = 8 * 1024 * 1024;
 const RECONNECT_MS = 2000;
 const IDENTITY_KEY = "landrop.identity";
@@ -71,8 +80,33 @@ function withPresence(devices: Record<string, KnownDevice>, before: Device[], on
   const next = { ...devices };
   const now = Date.now();
   for (const d of before) if (!online.some((o) => o.id === d.id) && next[d.id]) next[d.id] = { ...next[d.id], lastSeen: now };
-  for (const d of online) next[d.id] = { id: d.id, name: d.name, lastSeen: now };
+  for (const d of online) next[d.id] = { ...next[d.id], ...d, lastSeen: now };
   return next;
+}
+
+/**
+ * Each browser has its own identity, so a phone used from two browsers is two devices. The ones on
+ * one phone or computer (same `machine`) are shown as one contact.
+ */
+function contacts(devices: KnownDevice[], selfMachine: string | undefined): KnownDevice[][] {
+  const byMachine = new Map<string, KnownDevice[]>();
+  for (const d of devices) {
+    // Our own other browsers aren't someone to chat with.
+    if (selfMachine && d.machine === selfMachine) continue;
+    const key = d.machine ?? d.id;
+    byMachine.set(key, [...(byMachine.get(key) ?? []), d]);
+  }
+  return [...byMachine.values()];
+}
+
+/** Every private chat with the phone or computer `chatId` is with: one per browser on it. */
+function contactChats(devices: Record<string, KnownDevice>, selfId: string, chatId: string): string[] {
+  const members = chatMembers(chatId);
+  const machine = Array.isArray(members) ? devices[members.find((id) => id !== selfId) ?? ""]?.machine : undefined;
+  if (!machine) return [chatId];
+  return Object.values(devices)
+    .filter((d) => d.machine === machine && d.id !== selfId)
+    .map((d) => privateChatId(selfId, d.id));
 }
 
 function reducer(state: State, action: Action): State {
@@ -85,9 +119,10 @@ function reducer(state: State, action: Action): State {
     return { ...state, readAt: action.stored ?? { "*": newest } };
   }
   if (action.type === "read") {
-    const newest = Math.max(0, ...state.messages.filter((m) => m.chatId === action.chatId).map((m) => m.createdAt));
-    if (!state.readAt || newest <= (state.readAt[action.chatId] ?? 0)) return state;
-    return { ...state, readAt: { ...state.readAt, [action.chatId]: newest } };
+    const ids = state.self ? contactChats(state.devices, state.self.id, action.chatId) : [action.chatId];
+    const newest = Math.max(0, ...state.messages.filter((m) => ids.includes(m.chatId)).map((m) => m.createdAt));
+    if (!state.readAt || ids.every((id) => newest <= (state.readAt?.[id] ?? 0))) return state;
+    return { ...state, readAt: { ...state.readAt, ...Object.fromEntries(ids.map((id) => [id, newest])) } };
   }
   const e = action.event;
   switch (e.type) {
@@ -104,6 +139,8 @@ function reducer(state: State, action: Action): State {
       };
     case "presence:update":
       return { ...state, online: e.online, devices: withPresence(state.devices, state.online, e.online) };
+    case "chat:cleared":
+      return { ...state, messages: state.messages.filter((m) => m.chatId !== e.chatId || m.createdAt > e.before) };
     case "message:created":
     case "message:updated":
       return { ...state, messages: upsert(state.messages, e.message) };
@@ -128,7 +165,21 @@ function reducer(state: State, action: Action): State {
 }
 
 /** The open chat lives in the URL hash, so the browser's back button returns to the list. */
-const serverBase = () => `${location.protocol}//${location.hostname}:${LAN_PORT}`;
+const serverBase = () => `${location.protocol}//${serverHost()}`;
+
+/** The host's addresses on its networks, which other devices can open. */
+async function fetchNetworkAddresses(): Promise<string[]> {
+  const res = await fetch(serverBase() + routes.join);
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  return ((await res.json()) as { urls: string[] }).urls;
+}
+
+/** The other devices on the host's Wi-Fi that aren't using LANDrop. The host scans, so this takes a few seconds. */
+async function fetchNetworkDevices(token: string): Promise<NetworkDevice[]> {
+  const res = await fetch(serverBase() + routes.network, { headers: { authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  return ((await res.json()) as { devices: NetworkDevice[] }).devices;
+}
 
 /** Sends the host exactly the bytes a viewer asked for. The browser reads just that slice from disk. */
 async function serveLiveRange(
@@ -166,8 +217,18 @@ export default function LanDrop() {
   const chatIdRef = useRef<string | undefined>(undefined);
   /** The message whose press-and-hold menu is open. */
   const [selected, setSelected] = useState<Message>();
+  /** The chat whose press-and-hold menu is open in the list. */
+  const [heldChat, setHeldChat] = useState<ChatSummary>();
   const [dragging, setDragging] = useState(false);
-  const [renaming, setRenaming] = useState(false);
+  /** The name dialog: "rename" from the avatar, "welcome" when a new device first joins. */
+  const [renaming, setRenaming] = useState<"rename" | "welcome">();
+  /** Set for a brand-new device, whose guessed name the user should confirm once it has joined. */
+  const askForName = useRef(false);
+  const [inviting, setInviting] = useState(false);
+  /** The "Available devices" screen, shown in place of the chat list. */
+  const [picking, setPicking] = useState(false);
+  /** The picker's "Also on this Wi-Fi" list; undefined until the first scan finishes. */
+  const [networkDevices, setNetworkDevices] = useState<NetworkDevice[]>();
   /** dragenter/dragleave fire for every child element; count them so the overlay doesn't flicker. */
   const dragDepth = useRef(0);
   const [viewing, setViewing] = useState<Message>();
@@ -202,7 +263,9 @@ export default function LanDrop() {
   }
 
   useEffect(() => {
-    identityRef.current = loadIdentity();
+    const loaded = loadIdentity();
+    identityRef.current = loaded.identity;
+    askForName.current = loaded.isNew;
     tabIdRef.current = randomHex(16);
     let disposed = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
@@ -210,7 +273,7 @@ export default function LanDrop() {
     const open = () => {
       clearTimeout(retry);
       const scheme = location.protocol === "https:" ? "wss" : "ws";
-      const socket = new WebSocket(`${scheme}://${location.hostname}:${LAN_PORT}${routes.ws}`);
+      const socket = new WebSocket(`${scheme}://${serverHost()}${routes.ws}`);
       socketRef.current = socket;
       socket.onopen = () => {
         const { deviceId, deviceSecret, name } = identityRef.current!;
@@ -226,7 +289,15 @@ export default function LanDrop() {
       };
       socket.onmessage = (raw) => {
         const event = JSON.parse(raw.data) as ServerEvent;
-        if (event.type === "session:welcome") tokenRef.current = event.token;
+        if (event.type === "session:welcome") {
+          tokenRef.current = event.token;
+          // A first visit opens on "Available devices", to show straight away who else is around.
+          if (askForName.current) {
+            setRenaming("welcome");
+            setPicking(true);
+          }
+          askForName.current = false;
+        }
         if (event.type === "stream:request") {
           return void serveLiveRange(event, liveFilesRef.current, liveAnnouncementsRef.current, tokenRef.current);
         }
@@ -235,7 +306,8 @@ export default function LanDrop() {
         if (event.type === "session:welcome") dispatch({ type: "loadRead", stored: loadReadState() });
         // Messages arriving in the chat on screen are read as they arrive.
         const open = chatIdRef.current;
-        const arrived = event.type === "session:welcome" || (event.type === "message:created" && event.message.chatId === open);
+        // The reducer ignores messages from other chats; the open one may span several browsers of one phone.
+        const arrived = event.type === "session:welcome" || event.type === "message:created";
         if (open && arrived && document.visibilityState === "visible") dispatch({ type: "read", chatId: open });
       };
       socket.onclose = () => {
@@ -298,6 +370,20 @@ export default function LanDrop() {
     }
   }, [state.readAt]);
 
+  // Rescanned each time the picker opens; the previous list stays up meanwhile.
+  const token = state.token;
+  useEffect(() => {
+    if (!picking || !token) return;
+    let cancelled = false;
+    fetchNetworkDevices(token).then(
+      (devices) => !cancelled && setNetworkDevices(devices),
+      () => !cancelled && setNetworkDevices([]),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [picking, token]);
+
   function openChat(id: string | undefined) {
     // Each chat keeps its own draft; replies and picked files belong to the chat they were made in.
     setReplyTo(undefined);
@@ -307,7 +393,7 @@ export default function LanDrop() {
   }
 
   function rename(name: string) {
-    setRenaming(false);
+    setRenaming(undefined);
     const current = identityRef.current;
     if (!current || !name || name === current.name) return;
     identityRef.current = { ...current, name };
@@ -322,6 +408,8 @@ export default function LanDrop() {
   }
 
   async function send() {
+    // The contact's browser that's open now, which may not be the one the chat was opened with.
+    const chatId = activeChat?.id;
     if (!chatId) return;
     if (state.connection !== "online") {
       return dispatch({ type: "notice", notice: "Not connected to the LANDrop host yet. Reconnecting…" });
@@ -394,6 +482,17 @@ export default function LanDrop() {
     });
   }
 
+  async function deleteChat(chat: ChatSummary) {
+    setHeldChat(undefined);
+    // A phone used from several browsers is one chat here, but one chat per browser on the host.
+    const ids = chat.isGroup ? [chat.id] : (people.find((p) => p.id === chat.id)?.chatIds ?? [chat.id]);
+    try {
+      await Promise.all(ids.map((id) => api(routes.chat(id), "DELETE")));
+    } catch (err) {
+      dispatch({ type: "notice", notice: `Couldn't delete the chat: ${(err as Error).message}` });
+    }
+  }
+
   async function removeMessage(message: Message) {
     setSelected(undefined);
     const upload = uploadsRef.current.get(message.id);
@@ -416,49 +515,33 @@ export default function LanDrop() {
     preview: `${serverBase()}${routes.attachmentPreview(messageId)}?token=${state.token}`,
   });
 
-  // ---------- Chat list ----------
-
-  const lastByChat = new Map<string, Message>();
-  const unreadByChat = new Map<string, number>();
-  for (const m of state.messages) {
-    lastByChat.set(m.chatId, m);
-    const read = state.readAt?.[m.chatId] ?? state.readAt?.["*"] ?? Infinity;
-    if (m.senderId !== selfId && m.createdAt > read) unreadByChat.set(m.chatId, (unreadByChat.get(m.chatId) ?? 0) + 1);
-  }
-  const summarize = (id: string, title: string, isGroup: boolean, online: boolean): ChatSummary => {
-    const last = lastByChat.get(id);
-    const who = !last ? "" : last.senderId === selfId ? "You: " : isGroup ? `${nameOf(last.senderId, last.senderName)}: ` : "";
-    return {
-      id,
-      title,
-      isGroup,
-      online,
-      preview: last && who + messagePreview(last),
-      lastAt: last?.createdAt,
-      unread: unreadByChat.get(id) ?? 0,
-    };
-  };
-  const chats: ChatSummary[] = selfId
-    ? [
-        summarize(GROUP_CHAT_ID, "LANDrop group", true, false),
-        ...Object.values(state.devices)
-          .filter((d) => d.id !== selfId)
-          .map((d) => summarize(privateChatId(selfId, d.id), d.name, false, isOnline(d.id))),
-      ].sort(
-        // Most recent conversation first, like WhatsApp; people never messaged come after, online ones first.
-        (a, b) => (b.lastAt ?? -1) - (a.lastAt ?? -1) || Number(b.online) - Number(a.online) || a.title.localeCompare(b.title),
-      )
+  const otherDevices = selfId ? Object.values(state.devices).filter((d) => d.id !== selfId) : [];
+  const people = selfId
+    ? contacts(otherDevices, state.devices[selfId]?.machine).map((members) => {
+        const online = members.filter((d) => isOnline(d.id));
+        const lastSeen = Math.max(...members.map((d) => d.lastSeen));
+        // Talk to the browser open now, else the one used last.
+        const lead = online[0] ?? members.find((d) => d.lastSeen === lastSeen)!;
+        return {
+          id: privateChatId(selfId, lead.id),
+          name: lead.name,
+          online: online.length > 0,
+          lastSeen,
+          chatIds: members.map((d) => privateChatId(selfId, d.id)),
+        };
+      })
     : [];
 
   // ---------- Open chat ----------
 
   const others = state.online.filter((d) => d.id !== selfId);
-  const activeChat = ((): OpenChat | undefined => {
+  const activeChat = ((): (OpenChat & { chatIds: string[] }) | undefined => {
     if (!chatId || !selfId) return undefined;
     const members = chatMembers(chatId);
     if (members === "everyone") {
       return {
         id: chatId,
+        chatIds: [chatId],
         title: "LANDrop group",
         isGroup: true,
         online: false,
@@ -468,16 +551,57 @@ export default function LanDrop() {
     const otherId = members?.find((id) => id !== selfId);
     const other = otherId ? state.devices[otherId] : undefined;
     if (!members?.includes(selfId) || !other) return undefined;
-    const online = isOnline(other.id);
-    return {
+    const person = people.find((p) => p.chatIds.includes(chatId));
+    // Our own other browsers aren't listed, but a chat with one can still be opened by its link.
+    const { id, name, online, lastSeen, chatIds } = person ?? {
       id: chatId,
-      title: other.name,
-      isGroup: false,
-      online,
-      subtitle: online ? "online" : formatLastSeen(other.lastSeen),
+      name: other.name,
+      online: isOnline(other.id),
+      lastSeen: other.lastSeen,
+      chatIds: [chatId],
     };
+    return { id, chatIds, title: name, isGroup: false, online, subtitle: online ? "online" : formatLastSeen(lastSeen) };
   })();
-  const chatMessages = activeChat ? state.messages.filter((m) => m.chatId === activeChat.id) : [];
+  const chatMessages = activeChat ? state.messages.filter((m) => activeChat.chatIds.includes(m.chatId)) : [];
+
+  // ---------- Chat list ----------
+
+  const lastByChat = new Map<string, Message>();
+  const unreadByChat = new Map<string, number>();
+  for (const m of state.messages) {
+    lastByChat.set(m.chatId, m);
+    const read = state.readAt?.[m.chatId] ?? state.readAt?.["*"] ?? Infinity;
+    if (m.senderId !== selfId && m.createdAt > read) unreadByChat.set(m.chatId, (unreadByChat.get(m.chatId) ?? 0) + 1);
+  }
+  const summarize = (id: string, title: string, isGroup: boolean, online: boolean, chatIds = [id]): ChatSummary => {
+    const last = chatIds
+      .map((c) => lastByChat.get(c))
+      .reduce<Message | undefined>((a, b) => (!b || (a && a.createdAt >= b.createdAt) ? a : b), undefined);
+    const who = !last ? "" : last.senderId === selfId ? "You: " : isGroup ? `${nameOf(last.senderId, last.senderName)}: ` : "";
+    return {
+      id,
+      title,
+      isGroup,
+      online,
+      preview: last && who + messagePreview(last),
+      lastAt: last?.createdAt,
+      unread: chatIds.reduce((sum, c) => sum + (unreadByChat.get(c) ?? 0), 0),
+    };
+  };
+  // Like WhatsApp: the group plus conversations that have happened. A private chat opened from the
+  // device list shows while it's open, and drops out again if it's left without a message.
+  const chats: ChatSummary[] = selfId
+    ? [
+        summarize(GROUP_CHAT_ID, "LANDrop group", true, false),
+        ...people.map((p) => summarize(p.id, p.name, false, p.online, p.chatIds)),
+      ]
+        .filter((c) => c.isGroup || c.lastAt !== undefined || c.id === activeChat?.id)
+        // Most recent conversation first; an empty one just opened sits at the end.
+        .sort((a, b) => (b.lastAt ?? -1) - (a.lastAt ?? -1))
+    : [];
+  const pickableDevices: PickableDevice[] = people
+    .map((p) => ({ chatId: p.id, name: p.name, online: p.online, status: p.online ? "online" : formatLastSeen(p.lastSeen) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const isFileDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
   const dropHandlers = {
@@ -521,19 +645,35 @@ export default function LanDrop() {
     >
       {/* Phone: one screen at a time. Wider screens: the list beside the open chat, like WhatsApp Desktop. */}
       <Sidebar hidden={!!activeChat}>
-        {({ compact, pinned, togglePinned }) => (
-          <ChatList
-            chats={chats}
-            activeId={activeChat?.id}
-            selfName={selfName}
-            connection={state.connection}
-            compact={compact}
-            pinned={pinned}
-            onTogglePinned={togglePinned}
-            onOpen={openChat}
-            onRename={() => setRenaming(true)}
-          />
-        )}
+        {({ compact, pinned, togglePinned }) =>
+          picking ? (
+            <DevicePicker
+              devices={pickableDevices}
+              network={networkDevices}
+              onPick={(id) => {
+                setPicking(false);
+                openChat(id);
+              }}
+              onBack={() => setPicking(false)}
+              onInvite={() => setInviting(true)}
+            />
+          ) : (
+            <ChatList
+              chats={chats}
+              activeId={activeChat?.id}
+              selfName={selfName}
+              connection={state.connection}
+              compact={compact}
+              pinned={pinned}
+              onTogglePinned={togglePinned}
+              onOpen={openChat}
+              onHold={setHeldChat}
+              onRename={() => setRenaming("rename")}
+              onInvite={() => setInviting(true)}
+              onNewChat={() => setPicking(true)}
+            />
+          )
+        }
       </Sidebar>
       <section className={`${activeChat ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
         {activeChat ? (
@@ -598,8 +738,28 @@ export default function LanDrop() {
         </div>
       )}
 
-      {renaming && <RenameDialog current={selfName ?? ""} onSave={rename} onCancel={() => setRenaming(false)} />}
+      {renaming && (
+        <RenameDialog
+          current={selfName ?? ""}
+          welcome={renaming === "welcome"}
+          onSave={rename}
+          onCancel={() => setRenaming(undefined)}
+        />
+      )}
+      {inviting && <JoinDialog networkAddresses={fetchNetworkAddresses} onClose={() => setInviting(false)} />}
 
+      {heldChat && (
+        <ChatSheet
+          title={heldChat.title}
+          isGroup={heldChat.isGroup}
+          onDelete={() => {
+            // A deleted private chat leaves the list, so it can't stay open either.
+            if (!heldChat.isGroup && activeChat?.id === heldChat.id) openChat(undefined);
+            void deleteChat(heldChat);
+          }}
+          onClose={() => setHeldChat(undefined)}
+        />
+      )}
       {selected && (
         <MessageSheet
           message={selected}
@@ -629,7 +789,7 @@ function messagePreview(m: Message): string {
 /** "last seen today at 3:20 PM", "last seen yesterday at …", or a date, like WhatsApp. */
 function formatLastSeen(at: number): string {
   const date = new Date(at);
-  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const time = formatTime(at);
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
@@ -655,16 +815,17 @@ interface Identity {
 }
 
 /** A device keeps the same identity across reloads so its messages stay attributed to it. */
-function loadIdentity(): Identity {
+function loadIdentity(): { identity: Identity; isNew: boolean } {
   try {
     const stored = JSON.parse(localStorage.getItem(IDENTITY_KEY) ?? "null") as Identity | null;
-    if (stored?.deviceId && stored.deviceSecret && stored.name) return stored;
+    if (stored?.deviceId && stored.deviceSecret && stored.name) return { identity: stored, isNew: false };
   } catch {
     // Storage unavailable (e.g. private browsing): fall through to a fresh identity for this visit.
   }
-  const identity = { deviceId: randomHex(16), deviceSecret: randomHex(32), name: defaultDeviceName() };
+  const name = guessDeviceName(navigator.userAgent, navigator.maxTouchPoints);
+  const identity = { deviceId: randomHex(16), deviceSecret: randomHex(32), name };
   saveIdentity(identity);
-  return identity;
+  return { identity, isNew: true };
 }
 
 function saveIdentity(identity: Identity) {
@@ -678,33 +839,6 @@ function saveIdentity(identity: Identity) {
 /** crypto.getRandomValues works on plain-HTTP LAN pages, unlike crypto.randomUUID. */
 function randomHex(bytes: number): string {
   return [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function defaultDeviceName(): string {
-  const ua = navigator.userAgent;
-  const os = /iPhone/.test(ua)
-    ? "iPhone"
-    : /iPad/.test(ua)
-      ? "iPad"
-      : /Android/.test(ua)
-        ? "Android"
-        : /Mac OS X/.test(ua)
-          ? "Mac"
-          : /Windows/.test(ua)
-            ? "Windows"
-            : /Linux/.test(ua)
-              ? "Linux"
-              : "Device";
-  const browser = /Edg\//.test(ua)
-    ? "Edge"
-    : /Firefox\/|FxiOS/.test(ua)
-      ? "Firefox"
-      : /Chrome\/|CriOS/.test(ua)
-        ? "Chrome"
-        : /Safari\//.test(ua)
-          ? "Safari"
-          : "Browser";
-  return `${browser} on ${os}`;
 }
 
 // ---------- Helpers ----------

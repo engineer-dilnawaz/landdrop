@@ -11,6 +11,7 @@
   --ios-blue: #007aff;
   --ios-green: #34c759;
   --ios-red: #ff3b30;
+  color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {

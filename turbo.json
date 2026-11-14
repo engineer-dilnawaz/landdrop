@@ -2,10 +2,50 @@
   "$schema": "https://turbo.build/schema.json",
   "ui": "stream",
   "tasks": {
-    "build": { "dependsOn": ["^build"], "outputs": [".next/**", "!.next/cache/**"] },
-    "start": { "dependsOn": ["build"], "cache": false, "persistent": true },
-    "dev": { "cache": false, "persistent": true },
-    "typecheck": { "dependsOn": ["^typecheck"] },
-    "test": { "dependsOn": ["^typecheck"] }
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "out/**",
+        ".next/**",
+        "!.next/cache/**"
+      ]
+    },
+    "start": {
+      "dependsOn": [
+        "build"
+      ],
+      "cache": false,
+      "persistent": true
+    },
+    "@landrop/lan-server#start": {
+      "dependsOn": [
+        "@landrop/web#build"
+      ],
+      "cache": false,
+      "persistent": true
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": [
+        "^typecheck"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "^typecheck"
+      ]
+    },
+    "@landrop/desktop#dist": {
+      "dependsOn": [
+        "@landrop/web#build",
+        "build"
+      ],
+      "cache": false
+    }
   }
 }

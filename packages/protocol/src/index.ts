@@ -23,12 +23,24 @@ export const HISTORY_LIMIT = 500;
 export interface Device {
   id: string;
   name: string;
+  /**
+   * The same for every browser on one phone or computer, so lists can show it once. Opaque; set
+   * once the host has worked it out, and missing for devices it couldn't (e.g. behind a VPN).
+   */
+  machine?: string;
 }
 
 /** A device as listed in the directory: every device that has ever joined. */
 export interface KnownDevice extends Device {
   /** When the device was last connected (ms since epoch). */
   lastSeen: number;
+}
+
+/** Something else on the host's network (a phone, TV, the router) that isn't using LANDrop. */
+export interface NetworkDevice {
+  address: string;
+  /** Only when the device or the router gives one out; many phones don't. */
+  name?: string;
 }
 
 const DeviceNameSchema = z.string().trim().min(1).max(MAX_DEVICE_NAME_LENGTH);
@@ -168,6 +180,8 @@ export type ServerEvent =
       isHost: boolean;
     }
   | { type: "presence:update"; online: Device[] }
+  /** To every tab of the device that deleted the chat: drop its messages up to `before`. */
+  | { type: "chat:cleared"; chatId: string; before: number }
   | { type: "message:created"; message: Message }
   | { type: "message:updated"; message: Message }
   | {
@@ -186,8 +200,14 @@ export type ServerEvent =
 
 export const routes = {
   health: `${API_PREFIX}/health`,
+  /** GET → { urls: string[] }: addresses other devices on the network can open to join. */
+  join: `${API_PREFIX}/join`,
+  /** GET → { devices: NetworkDevice[] }: what else is on the host's network, minus devices using LANDrop. Takes a few seconds. */
+  network: `${API_PREFIX}/network`,
   ws: `${API_PREFIX}/ws`,
   messages: `${API_PREFIX}/messages`,
+  /** DELETE: deletes the chat's history for this device only; the others in it keep theirs. */
+  chat: (id: string) => `${API_PREFIX}/chats/${id}`,
   message: (id: string) => `${API_PREFIX}/messages/${id}`,
   attachmentData: (id: string) => `${API_PREFIX}/messages/${id}/attachment/data`,
   attachmentChecksum: (id: string) => `${API_PREFIX}/messages/${id}/attachment/checksum`,

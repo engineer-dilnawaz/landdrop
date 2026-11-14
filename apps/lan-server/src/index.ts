@@ -1,25 +1,31 @@
-import { networkInterfaces, homedir } from "node:os";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_LAN_PORT } from "@landrop/protocol";
-import { buildApp } from "./app.js";
+import QRCode from "qrcode";
+import { buildApp, joinUrls } from "./app.js";
 
 const port = Number(process.env.LANDROP_PORT ?? DEFAULT_LAN_PORT);
-const webPort = Number(process.env.LANDROP_WEB_PORT ?? 3000);
 
 // Chat history and attachments are kept here until the host clears the chat.
 const dataDir = process.env.LANDROP_DATA_DIR ?? join(homedir(), ".landrop");
-const app = await buildApp({ dataDir, logger: true });
+// The built web app (`npm run build`); without it the server runs API-only, for `next dev`.
+const builtWeb = process.env.LANDROP_WEB_DIR ?? fileURLToPath(new URL("../../web/out", import.meta.url));
+const webDir = existsSync(join(builtWeb, "index.html")) ? builtWeb : undefined;
+const app = await buildApp({ dataDir, logger: true, webDir });
 await app.listen({ host: "0.0.0.0", port });
 
-const lanAddresses = Object.values(networkInterfaces())
-  .flat()
-  .filter((net) => net && net.family === "IPv4" && !net.internal)
-  .map((net) => net!.address);
-console.log(
-  lanAddresses.length
-    ? `\nLANDrop is running. Open on any device on this network:\n${lanAddresses.map((a) => `  http://${a}:${webPort}`).join("\n")}\n`
-    : "\nLANDrop is running, but no LAN interface was found. Is this machine on a network?\n",
-);
+const urls = joinUrls(port);
+if (!webDir) {
+  console.log("\nLANDrop server is running without the app. Run `npm run build` first, or use `npm run dev` and open port 3000.\n");
+} else if (!urls.length) {
+  console.log("\nLANDrop is running, but no LAN interface was found. Is this machine on a network?\n");
+} else {
+  // Phones join by pointing the camera at this code.
+  const qr = await QRCode.toString(urls[0], { type: "terminal", small: true });
+  console.log(`\nLANDrop is running. Scan to join, or open on any device on this network:\n\n${qr}\n${urls.map((u) => `  ${u}`).join("\n")}\n`);
+}
 
 const shutdown = async () => {
   await app.close();

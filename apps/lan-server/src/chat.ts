@@ -12,10 +12,12 @@ import {
   isGroupId,
   type Attachment,
   type AttachmentStatus,
+  type ChatRead,
   type Device,
   type Group,
   type KnownDevice,
   type Message,
+  type MessageInfo,
   type ServerEvent,
 } from "@landrop/protocol";
 
@@ -91,6 +93,14 @@ CREATE TABLE IF NOT EXISTS group_members (
   device_id TEXT NOT NULL,
   PRIMARY KEY (group_id, device_id)
 );
+-- One row each time a device reads further, so message info can say when each message was first read.
+CREATE TABLE IF NOT EXISTS chat_reads (
+  chat_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  up_to INTEGER NOT NULL,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_reads_chat ON chat_reads (chat_id, device_id, up_to);
 CREATE TABLE IF NOT EXISTS chat_clears (
   device_id TEXT NOT NULL,
   chat_id TEXT NOT NULL,
@@ -226,6 +236,40 @@ export class ChatStore {
       )
       .run(deviceId, chatId, before);
     return before;
+  }
+
+  // ---------- Read receipts ----------
+
+  /** Records that a device has read a chat up to `upTo`; returns the new read, or nothing if it isn't further than before. */
+  markRead(chatId: string, deviceId: string, upTo: number): ChatRead | undefined {
+    if (!this.canSee(chatId, deviceId)) throw new HttpError(404, "Chat not found");
+    const now = Date.now();
+    // Nobody can have read a message that doesn't exist yet.
+    const capped = Math.min(upTo, now);
+    const { furthest } = this.db
+      .prepare("SELECT MAX(up_to) AS furthest FROM chat_reads WHERE chat_id = ? AND device_id = ?")
+      .get(chatId, deviceId) as { furthest: number | null };
+    if (furthest !== null && capped <= furthest) return undefined;
+    this.db.prepare("INSERT INTO chat_reads (chat_id, device_id, up_to, at) VALUES (?, ?, ?, ?)").run(chatId, deviceId, capped, now);
+    return { chatId, deviceId, upTo: capped };
+  }
+
+  /** How far each member has read each chat this device is in. */
+  readsFor(deviceId: string): ChatRead[] {
+    const rows = this.db
+      .prepare("SELECT chat_id AS chatId, device_id AS deviceId, MAX(up_to) AS upTo FROM chat_reads GROUP BY chat_id, device_id")
+      .all() as unknown as ChatRead[];
+    return rows.filter((r) => this.canSee(r.chatId, deviceId));
+  }
+
+  /** Who has read a message and when each first did; for anyone in its chat. */
+  messageInfo(id: string, deviceId: string): MessageInfo {
+    const message = this.get(id);
+    if (!message || !this.canSee(message.chatId, deviceId)) throw new HttpError(404, "Message not found");
+    const reads = this.db
+      .prepare("SELECT device_id AS deviceId, MIN(at) AS at FROM chat_reads WHERE chat_id = ? AND up_to >= ? AND device_id != ? GROUP BY device_id")
+      .all(message.chatId, message.createdAt, message.senderId ?? "") as unknown as MessageInfo["reads"];
+    return { reads };
   }
 
   createText(sender: Device, chatId: string, text: string, replyToId?: string): Message {
@@ -438,6 +482,7 @@ export class ChatStore {
     }
     this.db.prepare("DELETE FROM messages WHERE chat_id = ?").run(id);
     this.db.prepare("DELETE FROM chat_clears WHERE chat_id = ?").run(id);
+    this.db.prepare("DELETE FROM chat_reads WHERE chat_id = ?").run(id);
     this.db.prepare("DELETE FROM groups WHERE id = ?").run(id);
   }
 

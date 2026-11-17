@@ -15,6 +15,7 @@ import {
   routes,
   type Group,
   type Message,
+  type MessageInfo,
   type NetworkDevice,
   type ServerEvent,
 } from "@landrop/protocol";
@@ -394,6 +395,63 @@ describe("private chats", () => {
     const group = (await (await api(alice, "POST", routes.messages, { chatId: GROUP_CHAT_ID, text: "in group" })).json()) as Message;
     const res = await api(alice, "POST", routes.messages, { chatId, text: "reply", replyToId: group.id });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("read receipts", () => {
+  async function pair() {
+    const a = newIdentity();
+    const b = newIdentity();
+    const alice = await join_("Alice", a);
+    const bob = await join_("Bob", b);
+    const chatId = privateChatId(a.deviceId, b.deviceId);
+    return { a, b, alice, bob, chatId };
+  }
+  const send = async (client: Client, chatId: string, text: string) =>
+    (await (await api(client, "POST", routes.messages, { chatId, text })).json()) as Message;
+  const info = async (client: Client, id: string) => (await (await api(client, "GET", routes.messageInfo(id))).json()) as MessageInfo;
+
+  it("tells the sender when the other person reads, and remembers it for when they come back", async () => {
+    const { a, b, alice, bob, chatId } = await pair();
+    const sent = await send(alice, chatId, "seen this?");
+    expect((await api(bob, "POST", routes.chatRead(chatId), { upTo: sent.createdAt })).status).toBe(204);
+    const { read } = await alice.waitFor("chat:read");
+    expect(read).toEqual({ chatId, deviceId: b.deviceId, upTo: sent.createdAt });
+    alice.socket.close();
+    const again = await join_("Alice", a);
+    expect(again.welcome.reads).toContainEqual(read);
+  });
+
+  it("keeps who read a private chat between its two members", async () => {
+    const { alice, bob, chatId } = await pair();
+    const eve = await join_("Eve");
+    const sent = await send(alice, chatId, "just us");
+    await api(bob, "POST", routes.chatRead(chatId), { upTo: sent.createdAt });
+    expect((await api(eve, "POST", routes.chatRead(chatId), { upTo: sent.createdAt })).status).toBe(404);
+    expect((await api(eve, "GET", routes.messageInfo(sent.id))).status).toBe(404);
+    expect(eve.welcome.reads.some((r) => r.chatId === chatId)).toBe(false);
+  });
+
+  it("says when each message was first read, not when the chat was last opened", async () => {
+    const { b, alice, bob, chatId } = await pair();
+    const first = await send(alice, chatId, "one");
+    await api(bob, "POST", routes.chatRead(chatId), { upTo: first.createdAt });
+    const second = await send(alice, chatId, "two");
+    // Not read yet: Bob read up to the first message only.
+    expect((await info(alice, second.id)).reads).toEqual([]);
+    await new Promise((r) => setTimeout(r, 5));
+    await api(bob, "POST", routes.chatRead(chatId), { upTo: second.createdAt });
+    const [firstRead] = (await info(alice, first.id)).reads;
+    const [secondRead] = (await info(alice, second.id)).reads;
+    expect(firstRead.deviceId).toBe(b.deviceId);
+    expect(secondRead.at).toBeGreaterThan(firstRead.at);
+  });
+
+  it("doesn't count messages sent after a read, even if a device claims to have read ahead", async () => {
+    const { alice, bob, chatId } = await pair();
+    await api(bob, "POST", routes.chatRead(chatId), { upTo: Date.now() + 60_000 });
+    const later = await send(alice, chatId, "after");
+    expect((await info(alice, later.id)).reads).toEqual([]);
   });
 });
 

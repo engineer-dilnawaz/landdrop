@@ -18,6 +18,7 @@ import {
   type Group,
   type KnownDevice,
   type Message,
+  type MessageInfo,
   type NetworkDevice,
   type ServerEvent,
 } from "@landrop/protocol";
@@ -28,6 +29,8 @@ import { DevicePicker, type PickableDevice } from "./device-picker";
 import { GroupInfoSheet, GroupMembersSheet, type Contact } from "./group-sheets";
 import { JoinDialog } from "./join-dialog";
 import { MediaViewer } from "./media-viewer";
+import { MessageInfoSheet } from "./message-info";
+import { receiptOf, recipientsOf, type ReceiptContext, type Reads } from "./receipts";
 import { BottomTabs, Rail, type Panel } from "./nav";
 import { Settings } from "./settings";
 import { Sidebar } from "./sidebar";
@@ -74,6 +77,8 @@ interface State {
   progress: Record<string, Progress>;
   /** Newest message time read in each chat on this device ("*" covers chats never opened). Server clock. */
   readAt?: Record<string, number>;
+  /** How far every member has read each chat, from the host: drives the ticks on your messages. */
+  reads: Reads;
   notice?: string;
 }
 
@@ -85,7 +90,7 @@ type Action =
   | { type: "loadRead"; stored: Record<string, number> | null }
   | { type: "read"; chatId: string };
 
-const initialState: State = { connection: "connecting", isHost: false, online: [], devices: {}, messages: [], groups: {}, progress: {} };
+const initialState: State = { connection: "connecting", isHost: false, online: [], devices: {}, messages: [], groups: {}, progress: {}, reads: {} };
 
 function upsert(messages: Message[], message: Message): Message[] {
   const index = messages.findIndex((m) => m.id === message.id);
@@ -157,7 +162,14 @@ function reducer(state: State, action: Action): State {
         devices: withPresence(Object.fromEntries(e.directory.map((d) => [d.id, d])), [], e.online),
         messages: e.messages,
         groups: Object.fromEntries(e.groups.map((g) => [g.id, g])),
+        reads: e.reads.reduce<Reads>((all, r) => ({ ...all, [r.chatId]: { ...all[r.chatId], [r.deviceId]: r.upTo } }), {}),
       };
+    case "chat:read": {
+      const { chatId, deviceId, upTo } = e.read;
+      const chat = state.reads[chatId] ?? {};
+      if ((chat[deviceId] ?? 0) >= upTo) return state;
+      return { ...state, reads: { ...state.reads, [chatId]: { ...chat, [deviceId]: upTo } } };
+    }
     case "presence:update":
       return { ...state, online: e.online, devices: withPresence(state.devices, state.online, e.online) };
     case "group:updated":
@@ -246,6 +258,8 @@ export default function LanDrop() {
   const chatIdRef = useRef<string | undefined>(undefined);
   /** The message whose press-and-hold menu is open. */
   const [selected, setSelected] = useState<Message>();
+  /** The message whose info (who has read it) is open. */
+  const [infoFor, setInfoFor] = useState<string>();
   /** The chat whose press-and-hold menu is open in the list. */
   const [heldChat, setHeldChat] = useState<ChatSummary>();
   /** Picking devices for a new group, or to add to the open group. */
@@ -404,6 +418,20 @@ export default function LanDrop() {
       // Not persisted; unread counts reset on reload.
     }
   }, [state.readAt]);
+
+  // Tells the host how far this device has read each chat, for the senders' blue ticks. Only reads
+  // further than the host already knows are sent; the host's chat:read reply updates `reads`.
+  const reporting = useRef(new Map<string, number>());
+  useEffect(() => {
+    const self = state.self?.id;
+    if (!self || !state.token || !state.readAt) return;
+    for (const [chatId, upTo] of Object.entries(state.readAt)) {
+      if (chatId === "*" || upTo <= (state.reads[chatId]?.[self] ?? 0) || upTo <= (reporting.current.get(chatId) ?? 0)) continue;
+      reporting.current.set(chatId, upTo);
+      // A chat this device has since left or deleted is refused; nothing to report there.
+      api(routes.chatRead(chatId), "POST", { upTo }).catch(() => {});
+    }
+  }, [state.readAt, state.reads, state.self, state.token]);
 
   // Rescanned each time the picker opens; the previous list stays up meanwhile.
   const token = state.token;
@@ -590,6 +618,8 @@ export default function LanDrop() {
   /** A device's current name; the name stored on the message is only a fallback for devices not in the directory. */
   const nameOf = (id: string | undefined, fallback: string) => (id && state.devices[id]?.name) || fallback;
   const isOnline = (id: string) => state.online.some((d) => d.id === id);
+  const receiptContext: ReceiptContext = { devices: state.devices, isOnline, groups: state.groups, reads: state.reads };
+  const infoMessage = infoFor ? state.messages.find((m) => m.id === infoFor) : undefined;
   const urls = (messageId: string) => ({
     download: `${serverBase()}${routes.attachment(messageId)}?token=${state.token}`,
     preview: `${serverBase()}${routes.attachmentPreview(messageId)}?token=${state.token}`,
@@ -812,6 +842,7 @@ export default function LanDrop() {
               )
             }
             onOpenMedia={(m) => setViewing(m.id)}
+            receiptOf={(m) => receiptOf(m, receiptContext)}
             onOpenSender={(deviceId) => {
               if (!selfId || deviceId === selfId) return;
               // Their phone or computer as a whole, talking to whichever of its browsers is open now.
@@ -932,8 +963,27 @@ export default function LanDrop() {
             setReplyTo(selected);
             setSelected(undefined);
           }}
+          // Your own messages anywhere; in groups anyone's, to see who has read them.
+          onInfo={
+            selected.senderId === selfId || !Array.isArray(chatMembers(selected.chatId))
+              ? () => {
+                  setInfoFor(selected.id);
+                  setSelected(undefined);
+                }
+              : undefined
+          }
           onRemove={() => removeMessage(selected)}
           onClose={() => setSelected(undefined)}
+        />
+      )}
+      {infoMessage && (
+        <MessageInfoSheet
+          message={infoMessage}
+          recipients={recipientsOf(infoMessage, receiptContext)}
+          selfId={selfId}
+          senderName={infoMessage.senderId === selfId ? undefined : nameOf(infoMessage.senderId, infoMessage.senderName)}
+          loadInfo={() => api<MessageInfo>(routes.messageInfo(infoMessage.id), "GET")}
+          onClose={() => setInfoFor(undefined)}
         />
       )}
     </div>

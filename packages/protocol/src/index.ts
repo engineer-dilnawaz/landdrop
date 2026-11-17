@@ -5,7 +5,7 @@ import { z } from "zod";
  * Bump PROTOCOL_VERSION on any incompatible change; the server refuses
  * clients that speak a different version instead of misinterpreting them.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 export const DEFAULT_LAN_PORT = 4545;
 export const API_PREFIX = "/api/v1";
 
@@ -98,6 +98,23 @@ export const UpdateGroupRequestSchema = z
   .object({ name: GroupNameSchema.optional(), addMembers: z.array(DeviceIdSchema).min(1).max(MAX_GROUP_MEMBERS).optional() })
   .refine((r) => r.name !== undefined || r.addMembers !== undefined, "Nothing to change");
 export type UpdateGroupRequest = z.input<typeof UpdateGroupRequestSchema>;
+
+// ---------- Read receipts ----------
+
+/** A device has read a chat up to `upTo`: every message created at or before it. */
+export interface ChatRead {
+  chatId: string;
+  deviceId: string;
+  upTo: number;
+}
+
+export const MarkReadRequestSchema = z.object({ upTo: z.number().int().nonnegative() });
+export type MarkReadRequest = z.input<typeof MarkReadRequestSchema>;
+
+/** Who has read one message, and when they first did. */
+export interface MessageInfo {
+  reads: { deviceId: string; at: number }[];
+}
 
 // ---------- Messages ----------
 
@@ -215,10 +232,14 @@ export type ServerEvent =
       messages: Message[];
       /** The groups this device is in. */
       groups: Group[];
+      /** How far each member has read each of this device's chats. */
+      reads: ChatRead[];
       /** True only for the machine running the LAN server. */
       isHost: boolean;
     }
   | { type: "presence:update"; online: Device[] }
+  /** To a chat's members: one of them has read further. */
+  | { type: "chat:read"; read: ChatRead }
   /** To a group's members whenever it is created, renamed or gains or loses members. */
   | { type: "group:updated"; group: Group }
   /** To every tab of a device that left a group: forget it. */
@@ -257,6 +278,10 @@ export const routes = {
   leaveGroup: (id: string) => `${API_PREFIX}/groups/${id}/leave`,
   /** DELETE: deletes the chat's history for this device only; the others in it keep theirs. */
   chat: (id: string) => `${API_PREFIX}/chats/${id}`,
+  /** POST MarkReadRequest: this device has read the chat up to then. */
+  chatRead: (id: string) => `${API_PREFIX}/chats/${id}/read`,
+  /** GET → MessageInfo. */
+  messageInfo: (id: string) => `${API_PREFIX}/messages/${id}/info`,
   message: (id: string) => `${API_PREFIX}/messages/${id}`,
   attachmentData: (id: string) => `${API_PREFIX}/messages/${id}/attachment/data`,
   attachmentChecksum: (id: string) => `${API_PREFIX}/messages/${id}/attachment/checksum`,

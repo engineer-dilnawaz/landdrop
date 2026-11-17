@@ -125,6 +125,7 @@ export function MessageSheet({
   saveUrl,
   canRemove,
   onReply,
+  onInfo,
   onRemove,
   onClose,
 }: {
@@ -132,6 +133,8 @@ export function MessageSheet({
   saveUrl: string;
   canRemove: boolean;
   onReply: () => void;
+  /** Your own messages: who has read them. */
+  onInfo?: () => void;
   onRemove: () => void;
   onClose: () => void;
 }) {
@@ -166,6 +169,12 @@ export function MessageSheet({
             <SaveIcon size={20} />
             Save
           </a>
+        )}
+        {onInfo && (
+          <button onClick={onInfo} className={item}>
+            <InfoIcon />
+            Info
+          </button>
         )}
         {canRemove && (
           <button onClick={onRemove} className={`${item} text-danger`}>
@@ -521,6 +530,27 @@ export const LockIcon = ({ size = 16 }: IconProps) => (
 export const TickIcon = () => (
   <svg width={16} height={11} viewBox="0 0 16 11" aria-hidden>
     <path d="m1.5 5.5 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+/** Two ticks: delivered, or (in blue) read. */
+export const DoubleTickIcon = () => (
+  <svg width={18} height={11} viewBox="0 0 18 11" aria-hidden>
+    <path
+      d="m1.5 5.5 3.5 3.5 7-7.5M7.8 8.2l.8.8 7-7.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+export const InfoIcon = ({ size = 20 }: IconProps) => (
+  <svg {...sized(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5.5M12 7.6v.1" />
   </svg>
 );
 

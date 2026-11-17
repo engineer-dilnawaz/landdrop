@@ -15,6 +15,7 @@ import {
   CreateMessageRequestSchema,
   HISTORY_LIMIT,
   MAX_TEXT_LENGTH,
+  MarkReadRequestSchema,
   PROTOCOL_VERSION,
   SubmitChecksumRequestSchema,
   UpdateGroupRequestSchema,
@@ -270,6 +271,7 @@ export async function buildApp({
           directory: store.directory(),
           messages: store.history(session.device.id, HISTORY_LIMIT),
           groups: store.groupsOf(session.device.id),
+          reads: store.readsFor(session.device.id),
           isHost: isHost(request.socket.remoteAddress),
         });
         return broadcast({ type: "presence:update", online: online() });
@@ -324,6 +326,20 @@ export async function buildApp({
       if (s.device.id === device.id) socket.send(JSON.stringify({ type: "chat:cleared", chatId: request.params.id, before } satisfies ServerEvent));
     }
     return reply.code(204).send();
+  });
+
+  app.post<{ Params: MessageParams }>(routes.chatRead(":id"), async (request, reply) => {
+    const { device } = authenticate(request);
+    const { upTo } = parse(MarkReadRequestSchema, request.body);
+    const read = store.markRead(request.params.id, device.id, upTo);
+    // Everyone in the chat updates their ticks, including this device's other tabs.
+    if (read) broadcast({ type: "chat:read", read }, read.chatId);
+    return reply.code(204).send();
+  });
+
+  app.get<{ Params: MessageParams }>(routes.messageInfo(":id"), async (request) => {
+    const { device } = authenticate(request);
+    return store.messageInfo(request.params.id, device.id);
   });
 
   app.post(routes.groups, async (request, reply) => {

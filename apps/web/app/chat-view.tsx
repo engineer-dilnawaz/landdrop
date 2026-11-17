@@ -5,6 +5,7 @@ import { MAX_ATTACHMENT_BYTES, type Message } from "@landrop/protocol";
 import { Bubble, TIME_GAP_MS } from "./bubble";
 import { ChatAvatar, type ChatKind } from "./chat-list";
 import { ExpressionPanel } from "./expressions";
+import type { Receipt } from "./receipts";
 import { RecorderFallback, RecordingBar, canRecordHere, useVoiceRecorder } from "./voice";
 import type { Progress } from "./landrop";
 import {
@@ -64,6 +65,7 @@ export function ChatView({
   onClearChat,
   onOpenMedia,
   onOpenSender,
+  receiptOf,
   onReply,
   onLongPress,
 }: {
@@ -98,6 +100,8 @@ export function ChatView({
   onOpenMedia: (message: Message) => void;
   /** Opens the private chat with whoever sent a message. */
   onOpenSender: (deviceId: string) => void;
+  /** The ticks on one of your messages. */
+  receiptOf: (message: Message) => Receipt;
   onReply: (message: Message) => void;
   onLongPress: (message: Message) => void;
 }) {
@@ -250,6 +254,7 @@ export function ChatView({
                       onLongPress(m);
                     }}
                     onQuoteTap={showMessage}
+                    receipt={own ? receiptOf(m) : undefined}
                     // Like WhatsApp: the sender's picture beside the first message of their run, the rest lined up under it.
                     avatar={
                       own ? undefined : startsRun ? (

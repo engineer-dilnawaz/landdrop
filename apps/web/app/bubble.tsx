@@ -4,12 +4,14 @@ import { useRef, useState, type ReactNode } from "react";
 import { isAvailable, previewKind, type Attachment, type Message } from "@landrop/protocol";
 import type { Progress } from "./landrop";
 import { SparkleField } from "./sparkle-field";
+import type { Receipt } from "./receipts";
 import { VoicePlayer, formatClock } from "./voice";
 import {
   AlertIcon,
   ChevronIcon,
   ClockIcon,
   CopyIcon,
+  DoubleTickIcon,
   PlayIcon,
   ReplyIcon,
   SaveIcon,
@@ -61,6 +63,7 @@ export function Bubble({
   onQuoteTap,
   onOpenMedia,
   avatar,
+  receipt,
 }: {
   message: Message;
   nameOf: (id: string | undefined, fallback: string) => string;
@@ -79,6 +82,8 @@ export function Bubble({
   onQuoteTap: (id: string) => void;
   /** Others' messages: their picture beside the first of a run, or the space it takes. */
   avatar?: ReactNode;
+  /** Your own messages' ticks. */
+  receipt?: Receipt;
 }) {
   const a = message.attachment;
   const senderName = nameOf(message.senderId, message.senderName);
@@ -97,7 +102,7 @@ export function Bubble({
   const preview = a && isAvailable(a) && !previewFailed ? previewKind(a) : undefined;
   /** Photos and videos fill the bubble; voice messages sit inside it like text. */
   const media = preview === "image" || preview === "video";
-  const meta = <Meta at={message.createdAt} own={own} status={a?.status} />;
+  const meta = <Meta at={message.createdAt} own={own} status={a?.status} receipt={receipt} />;
 
   // Swipe right to reply; press and hold for the actions. Vertical drags stay with the page scroll.
   const handlers = {
@@ -234,7 +239,7 @@ export function Bubble({
             {a.mimeType === "image/gif" && <span className={`${BADGE} left-2 top-2`}>GIF</span>}
             {!message.text && (
               <span className="pointer-events-none absolute inset-x-0 bottom-0 flex h-9 items-end justify-end rounded-b-[5px] bg-linear-to-b from-transparent to-black/45 px-2 pb-1 text-white">
-                <Meta at={message.createdAt} own={own} status={a.status} onMedia />
+                <Meta at={message.createdAt} own={own} status={a.status} receipt={receipt} onMedia />
               </span>
             )}
           </div>
@@ -269,7 +274,7 @@ export function Bubble({
               )}
               {!message.text && (
                 <span className="pointer-events-none absolute bottom-0 right-0 flex h-9 items-end px-2 pb-1 text-white">
-                  <Meta at={message.createdAt} own={own} status={a.status} onMedia />
+                  <Meta at={message.createdAt} own={own} status={a.status} receipt={receipt} onMedia />
                 </span>
               )}
             </button>
@@ -370,28 +375,36 @@ function Meta({
   at,
   own,
   status,
+  receipt = "sent",
   onMedia = false,
 }: {
   at: number;
   own: boolean;
   status?: Attachment["status"];
+  receipt?: Receipt;
   onMedia?: boolean;
 }) {
+  // Faded on bubbles; full white over photos. Blue ticks are never faded.
+  const faded = onMedia ? "" : "opacity-60";
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] leading-4 ${onMedia ? "" : "opacity-60"}`}>
-      <time>{formatTime(at)}</time>
+    <span className="inline-flex items-center gap-1 text-[11px] leading-4">
+      <time className={faded}>{formatTime(at)}</time>
       {own &&
         (status === "uploading" ? (
-          <span aria-label="Sending">
+          <span aria-label="Sending" className={faded}>
             <ClockIcon />
           </span>
         ) : status === "failed" ? (
           <span aria-label="Didn't finish sending" className="text-danger">
             <AlertIcon />
           </span>
+        ) : receipt === "read" ? (
+          <span aria-label="Read" className="text-[#53bdeb]">
+            <DoubleTickIcon />
+          </span>
         ) : (
-          <span aria-label="Sent">
-            <TickIcon />
+          <span aria-label={receipt === "delivered" ? "Delivered" : "Sent"} className={faded}>
+            {receipt === "delivered" ? <DoubleTickIcon /> : <TickIcon />}
           </span>
         ))}
     </span>

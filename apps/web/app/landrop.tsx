@@ -6,6 +6,7 @@ import {
   DEFAULT_LAN_PORT,
   GROUP_CHAT_ID,
   MAX_ATTACHMENT_BYTES,
+  MAX_FOLDER_UPLOAD_BYTES,
   PROTOCOL_VERSION,
   chatMembers,
   isAvailable,
@@ -14,6 +15,7 @@ import {
   privateChatId,
   routes,
   type ClientMessage,
+  type FolderListing,
   type Device,
   type Group,
   type KnownDevice,
@@ -28,13 +30,25 @@ import { guessDeviceName } from "./device-name";
 import { DevicePicker, type PickableDevice } from "./device-picker";
 import { GroupInfoSheet, GroupMembersSheet, type Contact } from "./group-sheets";
 import { JoinDialog } from "./join-dialog";
-import { MediaViewer } from "./media-viewer";
+import {
+  FolderArchive,
+  archiveFolder,
+  folderAnnouncement,
+  folderFromDrop,
+  folderFromPicker,
+  pickedFolderName,
+  type FolderReading,
+  type PickedFolder,
+} from "./folder";
+import { FolderBrowser } from "./folder-browser";
+import { MediaViewer, type MediaItem } from "./media-viewer";
 import { MessageInfoSheet } from "./message-info";
 import { receiptOf, recipientsOf, type ReceiptContext, type Reads } from "./receipts";
 import { BottomTabs, Rail, type Panel } from "./nav";
 import { Settings } from "./settings";
 import { Sidebar } from "./sidebar";
 import {
+  AvatarPhotos,
   ChatSheet,
   CloseIcon,
   LockIcon,
@@ -57,6 +71,13 @@ const HASH_SLICE_BYTES = 8 * 1024 * 1024;
 const RECONNECT_MS = 2000;
 const IDENTITY_KEY = "landrop.identity";
 const READ_KEY = "landrop.read";
+
+/** A dropped folder still being read, shown in the composer until it's ready. */
+export interface ReadingFolder extends FolderReading {
+  id: string;
+  name: string;
+  stop: () => void;
+}
 
 export interface Progress {
   bytesReceived: number;
@@ -164,6 +185,9 @@ function reducer(state: State, action: Action): State {
         groups: Object.fromEntries(e.groups.map((g) => [g.id, g])),
         reads: e.reads.reduce<Reads>((all, r) => ({ ...all, [r.chatId]: { ...all[r.chatId], [r.deviceId]: r.upTo } }), {}),
       };
+    case "device:updated":
+      // The host sends the whole device, so a removed photo really is gone.
+      return { ...state, devices: { ...state.devices, [e.device.id]: e.device } };
     case "chat:read": {
       const { chatId, deviceId, upTo } = e.read;
       const chat = state.reads[chatId] ?? {};
@@ -253,11 +277,14 @@ export default function LanDrop() {
   /** Unsent text per chat, like WhatsApp drafts. */
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<File[]>([]);
+  const [readingFolders, setReadingFolders] = useState<ReadingFolder[]>([]);
   const [replyTo, setReplyTo] = useState<Message>();
   /** Mirrors chatId for socket and visibility handlers, which outlive a render. */
   const chatIdRef = useRef<string | undefined>(undefined);
   /** The message whose press-and-hold menu is open. */
   const [selected, setSelected] = useState<Message>();
+  /** The shared folder open in the folder browser, by message id. */
+  const [openFolder, setOpenFolder] = useState<string>();
   /** The message whose info (who has read it) is open. */
   const [infoFor, setInfoFor] = useState<string>();
   /** The chat whose press-and-hold menu is open in the list. */
@@ -297,13 +324,18 @@ export default function LanDrop() {
   const selfId = state.self?.id;
 
   async function api<T>(path: string, method: string, body?: unknown): Promise<T> {
+    // A Blob is JSON already written out: a folder's announcement.
+    const payload = body === undefined || body instanceof Blob ? body : new Blob([JSON.stringify(body)]);
+    // Only a big folder's announcement, with its list of files, gets this large; the host unpacks it.
+    const gzip = payload !== undefined && payload.size > GZIP_OVER_BYTES;
     const res = await fetch(serverBase() + path, {
       method,
       headers: {
         authorization: `Bearer ${tokenRef.current}`,
-        ...(body !== undefined && { "content-type": "application/json" }),
+        ...(payload !== undefined && { "content-type": "application/json" }),
+        ...(gzip && { "content-encoding": "gzip" }),
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: gzip ? await new Response(payload.stream().pipeThrough(new CompressionStream("gzip"))).blob() : payload,
     });
     if (res.status === 204) return undefined as T;
     const json = await res.json().catch(() => ({}));
@@ -475,6 +507,48 @@ export default function LanDrop() {
     socketRef.current?.send(JSON.stringify(update));
   }
 
+  /** Sets this device's profile photo (a square JPEG made by Settings), or removes it with undefined. */
+  async function setPhoto(photo: Blob | undefined) {
+    if (!selfId) return;
+    try {
+      if (!photo) return void (await api(routes.deviceAvatar(selfId), "DELETE"));
+      const res = await fetch(serverBase() + routes.deviceAvatar(selfId), {
+        method: "PUT",
+        headers: { authorization: `Bearer ${tokenRef.current}`, "content-type": photo.type },
+        body: photo,
+      });
+      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { message?: string }).message ?? "Couldn't save that photo");
+    } catch (err) {
+      dispatch({ type: "notice", notice: (err as Error).message });
+    }
+  }
+
+  /**
+   * Adds a picked or dropped folder to the message. Listing a big folder takes a while, so it shows
+   * in the composer with its progress, and can be stopped, until it's ready.
+   */
+  async function addFolder(name: string, read: (onProgress: (reading: FolderReading) => void, signal: AbortSignal) => Promise<PickedFolder>) {
+    const id = randomHex(8);
+    const controller = new AbortController();
+    setReadingFolders((all) => [...all, { id, name, read: 0, found: 0, scanning: true, stop: () => controller.abort() }]);
+    let shownAt = 0;
+    const onProgress = (reading: FolderReading) => {
+      // A few times a second is plenty, and keeps a huge folder from re-rendering per file.
+      if (performance.now() - shownAt < 100) return;
+      shownAt = performance.now();
+      setReadingFolders((all) => all.map((r) => (r.id === id ? { ...r, ...reading } : r)));
+    };
+    try {
+      chooseFiles([await archiveFolder(await read(onProgress, controller.signal), controller.signal)]);
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") dispatch({ type: "notice", notice: (err as Error).message });
+    } finally {
+      setReadingFolders((all) => all.filter((r) => r.id !== id));
+    }
+  }
+  const pickFolder = (list: FileList) => void addFolder(pickedFolderName(list), (onProgress, signal) => folderFromPicker(list, onProgress, signal));
+  const dropFolder = (entry: FileSystemDirectoryEntry) => void addFolder(entry.name, (onProgress, signal) => folderFromDrop(entry, onProgress, signal));
+
   function chooseFiles(picked: File[]) {
     setFiles((current) => [...current, ...picked]);
     dispatch({ type: "notice", notice: undefined });
@@ -503,18 +577,20 @@ export default function LanDrop() {
       }
       for (const file of toUpload) {
         // Over the cap, the file isn't uploaded: it stays on this device and is streamed to whoever opens it.
-        const live = file.size > MAX_ATTACHMENT_BYTES;
-        const announcement = api<Message>(routes.messages, "POST", {
-          chatId,
-          replyToId,
-          attachment: { name: file.name, size: file.size, mimeType: file.type || "application/octet-stream", live },
-        });
-        if (live) liveAnnouncementsRef.current.add(announcement);
+        // Folders have a higher cap, and their sender serves them while they upload, so they open at once.
+        const folder = file instanceof FolderArchive ? file : undefined;
+        const live = file.size > (folder ? MAX_FOLDER_UPLOAD_BYTES : MAX_ATTACHMENT_BYTES);
+        const request = { chatId, replyToId, attachment: { name: file.name, size: file.size, mimeType: file.type || "application/octet-stream", live } };
+        // A folder's list of files can be huge, so it's written out without freezing the page.
+        const announcement = folder
+          ? folderAnnouncement(request, folder.files).then((body) => api<Message>(routes.messages, "POST", body))
+          : api<Message>(routes.messages, "POST", request);
+        if (live || folder) liveAnnouncementsRef.current.add(announcement);
         const message = await announcement.finally(() => liveAnnouncementsRef.current.delete(announcement));
         replyToId = undefined;
+        if (live || folder) liveFilesRef.current.set(message.id, file);
         if (!live) void uploadAttachment(message.id, file);
         else {
-          liveFilesRef.current.set(message.id, file);
           dispatch({
             type: "notice",
             notice: `${file.name} is shared live from this device. Keep LANDrop open here, or it leaves the chat.`,
@@ -537,6 +613,8 @@ export default function LanDrop() {
       if (!control.stopped) dispatch({ type: "notice", notice: `${file.name} failed to send: ${(err as Error).message}` });
     } finally {
       uploadsRef.current.delete(messageId);
+      // A folder was served from here while it uploaded; now the host has it, or it failed.
+      liveFilesRef.current.delete(messageId);
     }
   }
 
@@ -618,8 +696,28 @@ export default function LanDrop() {
   /** A device's current name; the name stored on the message is only a fallback for devices not in the directory. */
   const nameOf = (id: string | undefined, fallback: string) => (id && state.devices[id]?.name) || fallback;
   const isOnline = (id: string) => state.online.some((d) => d.id === id);
+  /**
+   * A device's profile photo, or for a private chat the other person's. A phone or computer shows the
+   * same photo whichever of its browsers set it.
+   */
+  const photoFor = (seed: string) => {
+    const members = chatMembers(seed);
+    const id = Array.isArray(members) ? members.find((m) => m !== selfId) : seed;
+    const device = id ? state.devices[id] : undefined;
+    if (!device) return undefined;
+    const withPhoto = device.avatarAt
+      ? device
+      : device.machine
+        ? Object.values(state.devices)
+            .filter((d) => d.machine === device.machine && d.avatarAt)
+            .sort((a, b) => b.avatarAt! - a.avatarAt!)[0]
+        : undefined;
+    return withPhoto && `${serverBase()}${routes.deviceAvatar(withPhoto.id)}?token=${state.token}&v=${withPhoto.avatarAt}`;
+  };
   const receiptContext: ReceiptContext = { devices: state.devices, isOnline, groups: state.groups, reads: state.reads };
   const infoMessage = infoFor ? state.messages.find((m) => m.id === infoFor) : undefined;
+  // Closes by itself if the folder is removed, or its live sender goes offline.
+  const folderMessage = openFolder ? state.messages.find((m) => m.id === openFolder && m.attachment?.folder) : undefined;
   const urls = (messageId: string) => ({
     download: `${serverBase()}${routes.attachment(messageId)}?token=${state.token}`,
     preview: `${serverBase()}${routes.attachmentPreview(messageId)}?token=${state.token}`,
@@ -750,12 +848,12 @@ export default function LanDrop() {
       e.preventDefault();
       dragDepth.current = 0;
       setDragging(false);
-      // Browsers hand folders over as empty File entries that can't be read; leave them out.
+      // Folders arrive as directory entries to walk; everything else as files.
       const items = [...e.dataTransfer.items].filter((item) => item.kind === "file");
-      const folders = items.filter((item) => item.webkitGetAsEntry()?.isDirectory).length;
-      const dropped = items.filter((item) => !item.webkitGetAsEntry()?.isDirectory).map((item) => item.getAsFile()!);
+      const entries = items.map((item) => item.webkitGetAsEntry());
+      const dropped = items.filter((_, i) => !entries[i]?.isDirectory).map((item) => item.getAsFile()!);
       chooseFiles(dropped.filter(Boolean));
-      if (folders) dispatch({ type: "notice", notice: "Folders can't be sent yet. Drop the files inside them instead." });
+      for (const entry of entries) if (entry?.isDirectory) dropFolder(entry as FileSystemDirectoryEntry);
     },
   };
   // Presence carries the latest name, including renames made in another tab of this browser.
@@ -763,230 +861,256 @@ export default function LanDrop() {
   const totalUnread = chats.reduce((sum, c) => sum + c.unread, 0);
 
   return (
-    // App chrome, not a document: no text selection or iOS callouts anywhere except text fields.
-    <div
-      {...dropHandlers}
-      className="relative flex h-dvh bg-app select-none [-webkit-touch-callout:none] [-webkit-user-select:none]"
-    >
-      {/* Phone: one screen at a time. Wider screens: icon rail, list and open chat side by side, like WhatsApp Web. */}
-      <Rail
-        panel={panel}
-        unread={totalUnread}
-        selfName={selfName}
-        selfId={selfId}
-        onPanel={setPanel}
-        onInvite={() => setInviting(true)}
-      />
-      <Sidebar hidden={!!activeChat}>
-        {panel === "devices" ? (
-          <DevicePicker
-            devices={pickableDevices}
-            network={networkDevices}
-            onPick={(id) => {
-              setPanel("chats");
-              openChat(id);
-            }}
-            onBack={() => setPanel("chats")}
-            onInvite={() => setInviting(true)}
-          />
-        ) : panel === "settings" ? (
-          <Settings selfName={selfName} selfId={selfId} onRename={() => setRenaming("rename")} />
-        ) : (
-          <ChatList
-            chats={chats}
-            activeId={activeChat?.id}
-            connection={state.connection}
-            onOpen={openChat}
-            onHold={setHeldChat}
-            onInvite={() => setInviting(true)}
-            onNewChat={() => setPanel("devices")}
-            onNewGroup={() => setGroupPicker("create")}
-            onSettings={() => setPanel("settings")}
-          />
-        )}
-        <BottomTabs panel={panel} unread={totalUnread} onPanel={setPanel} />
-      </Sidebar>
-      <section className={`${activeChat ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
-        {activeChat ? (
-          <ChatView
-            chat={activeChat}
-            messages={chatMessages}
-            selfId={selfId}
-            nameOf={nameOf}
-            progress={state.progress}
-            urls={urls}
-            composer={{
-              text: drafts[activeChat.id] ?? "",
-              files,
-              replyTo,
-              setText: (text) => setDrafts((d) => ({ ...d, [activeChat.id]: text })),
-              removeFile: (index) => setFiles((current) => current.filter((_, i) => i !== index)),
-              chooseFiles,
-              cancelReply: () => setReplyTo(undefined),
-              send: (extra) => void send(extra),
-              notice: (notice) => dispatch({ type: "notice", notice }),
-            }}
-            onBack={() => openChat(undefined)}
-            onInvite={() => setInviting(true)}
-            onGroupInfo={() => setGroupInfo(true)}
-            onLeaveGroup={() => setLeaving(openGroup)}
-            onClearChat={() =>
-              setHeldChat(
-                chats.find((c) => c.id === activeChat.id) ?? {
-                  id: activeChat.id,
-                  title: activeChat.title,
-                  kind: activeChat.kind,
-                  online: activeChat.online,
-                  unread: 0,
-                },
-              )
-            }
-            onOpenMedia={(m) => setViewing(m.id)}
-            receiptOf={(m) => receiptOf(m, receiptContext)}
-            onOpenSender={(deviceId) => {
-              if (!selfId || deviceId === selfId) return;
-              // Their phone or computer as a whole, talking to whichever of its browsers is open now.
-              openChat(people.find((p) => p.deviceIds.includes(deviceId))?.id ?? privateChatId(selfId, deviceId));
-            }}
-            onReply={setReplyTo}
-            onLongPress={setSelected}
-          />
-        ) : (
-          // WhatsApp Web's welcome pane while no chat is open.
-          <div className="relative flex flex-1 flex-col items-center justify-center gap-4 border-b-[6px] border-accent bg-bar px-10 text-center">
-            <span className="text-accent">
-              <Logo size={96} animated />
-            </span>
-            <p className="text-[30px] font-light">LANDrop</p>
-            <p className="max-w-md text-[14px] leading-6 text-muted">
-              Send and receive messages and files of any size with every device on this Wi-Fi. Pick a chat to start.
-            </p>
-            <p className="absolute bottom-8 flex items-center gap-1.5 text-[13px] text-muted">
-              <LockIcon />
-              Everything stays on your network
-            </p>
-          </div>
-        )}
-      </section>
+    <AvatarPhotos.Provider value={photoFor}>
+      {/* App chrome, not a document: no text selection or iOS callouts anywhere except text fields. */}
+      <div
+        {...dropHandlers}
+        className="relative flex h-dvh bg-app select-none [-webkit-touch-callout:none] [-webkit-user-select:none]"
+      >
+        {/* Phone: one screen at a time. Wider screens: icon rail, list and open chat side by side, like WhatsApp Web. */}
+        <Rail
+          panel={panel}
+          unread={totalUnread}
+          selfName={selfName}
+          selfId={selfId}
+          onPanel={setPanel}
+          onInvite={() => setInviting(true)}
+        />
+        <Sidebar hidden={!!activeChat}>
+          {panel === "devices" ? (
+            <DevicePicker
+              devices={pickableDevices}
+              network={networkDevices}
+              onPick={(id) => {
+                setPanel("chats");
+                openChat(id);
+              }}
+              onBack={() => setPanel("chats")}
+              onInvite={() => setInviting(true)}
+            />
+          ) : panel === "settings" ? (
+            <Settings
+              selfName={selfName}
+              selfId={selfId}
+              hasPhoto={!!(selfId && state.devices[selfId]?.avatarAt)}
+              onRename={() => setRenaming("rename")}
+              onPhoto={(photo) => void setPhoto(photo)}
+            />
+          ) : (
+            <ChatList
+              chats={chats}
+              activeId={activeChat?.id}
+              connection={state.connection}
+              onOpen={openChat}
+              onHold={setHeldChat}
+              onInvite={() => setInviting(true)}
+              onNewChat={() => setPanel("devices")}
+              onNewGroup={() => setGroupPicker("create")}
+              onSettings={() => setPanel("settings")}
+            />
+          )}
+          <BottomTabs panel={panel} unread={totalUnread} onPanel={setPanel} />
+        </Sidebar>
+        <section className={`${activeChat ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
+          {activeChat ? (
+            <ChatView
+              chat={activeChat}
+              messages={chatMessages}
+              selfId={selfId}
+              nameOf={nameOf}
+              progress={state.progress}
+              urls={urls}
+              composer={{
+                text: drafts[activeChat.id] ?? "",
+                files,
+                replyTo,
+                setText: (text) => setDrafts((d) => ({ ...d, [activeChat.id]: text })),
+                removeFile: (index) => setFiles((current) => current.filter((_, i) => i !== index)),
+                chooseFiles,
+                pickFolder,
+                dropFolder,
+                readingFolders,
+                cancelReply: () => setReplyTo(undefined),
+                send: (extra) => void send(extra),
+                notice: (notice) => dispatch({ type: "notice", notice }),
+              }}
+              onBack={() => openChat(undefined)}
+              onInvite={() => setInviting(true)}
+              onGroupInfo={() => setGroupInfo(true)}
+              onLeaveGroup={() => setLeaving(openGroup)}
+              onClearChat={() =>
+                setHeldChat(
+                  chats.find((c) => c.id === activeChat.id) ?? {
+                    id: activeChat.id,
+                    title: activeChat.title,
+                    kind: activeChat.kind,
+                    online: activeChat.online,
+                    unread: 0,
+                  },
+                )
+              }
+              onOpenMedia={(m) => setViewing(m.id)}
+            onOpenFolder={(m) => setOpenFolder(m.id)}
+              receiptOf={(m) => receiptOf(m, receiptContext)}
+              onOpenSender={(deviceId) => {
+                if (!selfId || deviceId === selfId) return;
+                // Their phone or computer as a whole, talking to whichever of its browsers is open now.
+                openChat(people.find((p) => p.deviceIds.includes(deviceId))?.id ?? privateChatId(selfId, deviceId));
+              }}
+              onReply={setReplyTo}
+              onLongPress={setSelected}
+            />
+          ) : (
+            // WhatsApp Web's welcome pane while no chat is open.
+            <div className="relative flex flex-1 flex-col items-center justify-center gap-4 border-b-[6px] border-accent bg-bar px-10 text-center">
+              <span className="text-accent">
+                <Logo size={96} animated />
+              </span>
+              <p className="text-[30px] font-light">LANDrop</p>
+              <p className="max-w-md text-[14px] leading-6 text-muted">
+                Send and receive messages and files of any size with every device on this Wi-Fi. Pick a chat to start.
+              </p>
+              <p className="absolute bottom-8 flex items-center gap-1.5 text-[13px] text-muted">
+                <LockIcon />
+                Everything stays on your network
+              </p>
+            </div>
+          )}
+        </section>
 
-      {state.notice && (
-        <div
-          role="alert"
-          className="fixed bottom-24 left-1/2 z-30 flex w-[min(92vw,30rem)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg bg-[#323739] py-3 pl-5 pr-2 text-[14px] text-white shadow-xl md:bottom-6"
-        >
-          <span className="pt-0.5">{state.notice}</span>
-          <button
-            className="flex size-7 shrink-0 items-center justify-center rounded-full text-white/70 hover:bg-white/10"
-            onClick={() => dispatch({ type: "notice" })}
-            aria-label="Dismiss"
+        {state.notice && (
+          <div
+            role="alert"
+            className="fixed bottom-24 left-1/2 z-30 flex w-[min(92vw,30rem)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg bg-[#323739] py-3 pl-5 pr-2 text-[14px] text-white shadow-xl md:bottom-6"
           >
-            <CloseIcon size={18} />
-          </button>
-        </div>
-      )}
-
-      {viewing && (
-        <MediaViewer
-          items={chatMessages.filter((m) => m.attachment && isAvailable(m.attachment) && ["image", "video"].includes(previewKind(m.attachment) ?? ""))}
-          startId={viewing}
-          urls={urls}
-          describe={(m) => `${m.senderId === selfId ? "You" : nameOf(m.senderId, m.senderName)} · ${formatDay(m.createdAt)} at ${formatTime(m.createdAt)}`}
-          onClose={() => setViewing(undefined)}
-        />
-      )}
-
-      {dragging && (
-        <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent bg-panel/90 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-2 text-accent">
-            <PlusIcon />
-            <p className="text-[17px] font-semibold">Drop to attach</p>
-            <p className="text-[13px] text-muted">Any size. Over {formatBytes(MAX_ATTACHMENT_BYTES)} is shared live from this device</p>
+            <span className="pt-0.5">{state.notice}</span>
+            <button
+              className="flex size-7 shrink-0 items-center justify-center rounded-full text-white/70 hover:bg-white/10"
+              onClick={() => dispatch({ type: "notice" })}
+              aria-label="Dismiss"
+            >
+              <CloseIcon size={18} />
+            </button>
           </div>
-        </div>
-      )}
+        )}
 
-      {renaming && (
-        <RenameDialog
-          current={selfName ?? ""}
-          welcome={renaming === "welcome"}
-          onSave={rename}
-          onCancel={() => setRenaming(undefined)}
-        />
-      )}
-      {inviting && <JoinDialog networkAddresses={fetchNetworkAddresses} onClose={() => setInviting(false)} />}
+        {folderMessage && (
+          <FolderBrowser
+            message={folderMessage}
+            listDir={(dir) => api<FolderListing>(`${routes.folderFiles(folderMessage.id)}?dir=${encodeURIComponent(dir)}`, "GET")}
+            fileUrl={(path, preview) =>
+              `${serverBase()}${routes.folderFile(folderMessage.id)}?token=${state.token}&path=${encodeURIComponent(path)}${preview ? "&preview=1" : ""}`
+            }
+            onClose={() => setOpenFolder(undefined)}
+          />
+        )}
+        {viewing && (
+          <MediaViewer
+            items={chatMessages.flatMap((m): MediaItem[] => {
+              const kind = m.attachment && isAvailable(m.attachment) ? previewKind(m.attachment) : undefined;
+              if (kind !== "image" && kind !== "video") return [];
+              const { preview, download } = urls(m.id);
+              const sender = m.senderId === selfId ? "You" : nameOf(m.senderId, m.senderName);
+              return [{ id: m.id, name: m.attachment!.name, kind, src: preview, download, title: `${sender} · ${formatDay(m.createdAt)} at ${formatTime(m.createdAt)}` }];
+            })}
+            startId={viewing}
+            onClose={() => setViewing(undefined)}
+          />
+        )}
 
-      {heldChat && (
-        <ChatSheet
-          title={heldChat.title}
-          action={heldChat.kind === "private" ? "delete" : "clear"}
-          onConfirm={() => {
-            // A deleted private chat leaves the list, so it can't stay open either.
-            if (heldChat.kind === "private" && activeChat?.id === heldChat.id) openChat(undefined);
-            void deleteChat(heldChat);
-          }}
-          onClose={() => setHeldChat(undefined)}
-        />
-      )}
-      {leaving && (
-        <ChatSheet title={leaving.name} action="leave" onConfirm={() => void leaveGroup(leaving)} onClose={() => setLeaving(undefined)} />
-      )}
-      {groupPicker && (
-        <GroupMembersSheet
-          mode={groupPicker}
-          contacts={groupContacts}
-          onSubmit={(ids, name) =>
-            groupPicker === "create" ? createGroup(ids, name) : openGroup ? updateGroup(openGroup.id, { addMembers: ids }) : Promise.resolve()
-          }
-          onClose={() => setGroupPicker(undefined)}
-        />
-      )}
-      {groupInfo && openGroup && !groupPicker && !leaving && (
-        <GroupInfoSheet
-          group={openGroup}
-          selfId={selfId}
-          nameOf={(id) => nameOf(id, "Unknown device")}
-          isOnline={isOnline}
-          canAdd={people.some((p) => !p.deviceIds.some((id) => openGroup.members.includes(id)))}
-          onRename={(name) => updateGroup(openGroup.id, { name })}
-          onAdd={() => setGroupPicker("add")}
-          onLeave={() => setLeaving(openGroup)}
-          onClose={() => setGroupInfo(false)}
-        />
-      )}
-      {selected && (
-        <MessageSheet
-          message={selected}
-          saveUrl={urls(selected.id).download}
-          // Senders can remove their own messages; the host can moderate the group only (enforced again by the server).
-          canRemove={selected.senderId === selfId || (state.isHost && selected.chatId === GROUP_CHAT_ID)}
-          onReply={() => {
-            setReplyTo(selected);
-            setSelected(undefined);
-          }}
-          // Your own messages anywhere; in groups anyone's, to see who has read them.
-          onInfo={
-            selected.senderId === selfId || !Array.isArray(chatMembers(selected.chatId))
-              ? () => {
-                  setInfoFor(selected.id);
-                  setSelected(undefined);
-                }
-              : undefined
-          }
-          onRemove={() => removeMessage(selected)}
-          onClose={() => setSelected(undefined)}
-        />
-      )}
-      {infoMessage && (
-        <MessageInfoSheet
-          message={infoMessage}
-          recipients={recipientsOf(infoMessage, receiptContext)}
-          selfId={selfId}
-          senderName={infoMessage.senderId === selfId ? undefined : nameOf(infoMessage.senderId, infoMessage.senderName)}
-          loadInfo={() => api<MessageInfo>(routes.messageInfo(infoMessage.id), "GET")}
-          onClose={() => setInfoFor(undefined)}
-        />
-      )}
-    </div>
+        {dragging && (
+          <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent bg-panel/90 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-2 text-accent">
+              <PlusIcon />
+              <p className="text-[17px] font-semibold">Drop to attach</p>
+              <p className="text-[13px] text-muted">Any size. Over {formatBytes(MAX_ATTACHMENT_BYTES)} is shared live from this device</p>
+            </div>
+          </div>
+        )}
+
+        {renaming && (
+          <RenameDialog
+            current={selfName ?? ""}
+            welcome={renaming === "welcome"}
+            onSave={rename}
+            onCancel={() => setRenaming(undefined)}
+          />
+        )}
+        {inviting && <JoinDialog networkAddresses={fetchNetworkAddresses} onClose={() => setInviting(false)} />}
+
+        {heldChat && (
+          <ChatSheet
+            title={heldChat.title}
+            action={heldChat.kind === "private" ? "delete" : "clear"}
+            onConfirm={() => {
+              // A deleted private chat leaves the list, so it can't stay open either.
+              if (heldChat.kind === "private" && activeChat?.id === heldChat.id) openChat(undefined);
+              void deleteChat(heldChat);
+            }}
+            onClose={() => setHeldChat(undefined)}
+          />
+        )}
+        {leaving && (
+          <ChatSheet title={leaving.name} action="leave" onConfirm={() => void leaveGroup(leaving)} onClose={() => setLeaving(undefined)} />
+        )}
+        {groupPicker && (
+          <GroupMembersSheet
+            mode={groupPicker}
+            contacts={groupContacts}
+            onSubmit={(ids, name) =>
+              groupPicker === "create" ? createGroup(ids, name) : openGroup ? updateGroup(openGroup.id, { addMembers: ids }) : Promise.resolve()
+            }
+            onClose={() => setGroupPicker(undefined)}
+          />
+        )}
+        {groupInfo && openGroup && !groupPicker && !leaving && (
+          <GroupInfoSheet
+            group={openGroup}
+            selfId={selfId}
+            nameOf={(id) => nameOf(id, "Unknown device")}
+            isOnline={isOnline}
+            canAdd={people.some((p) => !p.deviceIds.some((id) => openGroup.members.includes(id)))}
+            onRename={(name) => updateGroup(openGroup.id, { name })}
+            onAdd={() => setGroupPicker("add")}
+            onLeave={() => setLeaving(openGroup)}
+            onClose={() => setGroupInfo(false)}
+          />
+        )}
+        {selected && (
+          <MessageSheet
+            message={selected}
+            saveUrl={urls(selected.id).download}
+            // Senders can remove their own messages; the host can moderate the group only (enforced again by the server).
+            canRemove={selected.senderId === selfId || (state.isHost && selected.chatId === GROUP_CHAT_ID)}
+            onReply={() => {
+              setReplyTo(selected);
+              setSelected(undefined);
+            }}
+            // Your own messages anywhere; in groups anyone's, to see who has read them.
+            onInfo={
+              selected.senderId === selfId || !Array.isArray(chatMembers(selected.chatId))
+                ? () => {
+                    setInfoFor(selected.id);
+                    setSelected(undefined);
+                  }
+                : undefined
+            }
+            onRemove={() => removeMessage(selected)}
+            onClose={() => setSelected(undefined)}
+          />
+        )}
+        {infoMessage && (
+          <MessageInfoSheet
+            message={infoMessage}
+            recipients={recipientsOf(infoMessage, receiptContext)}
+            selfId={selfId}
+            senderName={infoMessage.senderId === selfId ? undefined : nameOf(infoMessage.senderId, infoMessage.senderName)}
+            loadInfo={() => api<MessageInfo>(routes.messageInfo(infoMessage.id), "GET")}
+            onClose={() => setInfoFor(undefined)}
+          />
+        )}
+      </div>
+    </AvatarPhotos.Provider>
   );
 }
 
@@ -997,6 +1121,7 @@ function messagePreview(m: Message): string {
   const kind = previewKind(a);
   if (kind === "audio") return a.name.startsWith("Voice message") ? "🎤 Voice message" : `🎵 ${a.name}`;
   if (a.mimeType === "image/gif") return "👾 GIF";
+  if (a.folder) return `📁 ${a.name.replace(/\.zip$/, "")}`;
   return kind === "image" ? "📷 Photo" : kind === "video" ? "🎥 Video" : `📄 ${a.name}`;
 }
 
@@ -1056,6 +1181,9 @@ function randomHex(bytes: number): string {
 }
 
 // ---------- Helpers ----------
+
+/** Request bodies bigger than this are sent gzipped. */
+const GZIP_OVER_BYTES = 1024 * 1024;
 
 async function hashFile(file: File, control: { stopped: boolean }): Promise<string> {
   const hasher = await createSHA256();

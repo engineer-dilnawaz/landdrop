@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { previewKind, type Message } from "@landrop/protocol";
 import { BackIcon, CloseIcon, PlayIcon, SaveIcon, useEscape } from "./ui";
 
 const MAX_ZOOM = 4;
@@ -17,6 +16,17 @@ interface Zoom {
 }
 const NO_ZOOM: Zoom = { scale: 1, x: 0, y: 0 };
 
+/** One photo or video to show: from a chat, or from inside a shared folder. */
+export interface MediaItem {
+  id: string;
+  name: string;
+  kind: "image" | "video";
+  src: string;
+  download: string;
+  /** The header line: who sent it and when, or where it is in a folder. */
+  title: string;
+}
+
 /**
  * A chat's photos and videos full screen, like WhatsApp: swipe, arrow keys or the side buttons move
  * between them, double-tap, pinch or scroll to zoom a photo and drag to look around it.
@@ -24,16 +34,11 @@ const NO_ZOOM: Zoom = { scale: 1, x: 0, y: 0 };
 export function MediaViewer({
   items,
   startId,
-  urls,
-  describe,
   onClose,
 }: {
-  /** The chat's photos and videos, oldest first. */
-  items: Message[];
+  /** The photos and videos to move between, in order. */
+  items: MediaItem[];
   startId: string;
-  urls: (id: string) => { preview: string; download: string };
-  /** Who sent it and when. */
-  describe: (message: Message) => string;
   onClose: () => void;
 }) {
   const [index, setIndex] = useState(() => Math.max(0, items.findIndex((m) => m.id === startId)));
@@ -72,7 +77,7 @@ export function MediaViewer({
     if (!current) onClose();
   }, [current, onClose]);
   if (!current) return null;
-  const isVideo = previewKind(current.attachment!) === "video";
+  const isVideo = current.kind === "video";
 
   /** Keeps a zoomed photo from being dragged off the screen. */
   const clamp = (z: Zoom): Zoom => {
@@ -167,8 +172,8 @@ export function MediaViewer({
     },
   };
 
-  const a = current.attachment!;
-  const { download } = urls(current.id);
+  const a = current;
+  const { download } = current;
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label={a.name} className="fixed inset-0 z-50 flex flex-col bg-[#0b141a] text-[#e9edef]">
       <div className="flex items-center gap-2 px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:px-4">
@@ -176,7 +181,7 @@ export function MediaViewer({
           <BackIcon />
         </button>
         <div className="min-w-0 flex-1 pl-1">
-          <p className="truncate text-[16px]">{describe(current)}</p>
+          <p className="truncate text-[16px]">{current.title}</p>
           <p className="truncate text-[13px] text-[#8696a0]">
             {items.length > 1 && `${index + 1} of ${items.length} · `}
             {a.name}
@@ -200,8 +205,8 @@ export function MediaViewer({
               {/* Only the photos either side of this one are loaded, so long chats stay quick. */}
               {Math.abs(i - index) <= 1 && (
                 <Slide
-                  message={m}
-                  src={urls(m.id).preview}
+                  item={m}
+                  src={m.src}
                   active={i === index}
                   zoom={i === index ? zoom : NO_ZOOM}
                   dragging={dragging}
@@ -240,16 +245,16 @@ export function MediaViewer({
                 i === index ? "ring-2 ring-accent" : "opacity-55 hover:opacity-90"
               }`}
             >
-              {previewKind(m.attachment!) === "video" ? (
+              {m.kind === "video" ? (
                 <>
-                  <video src={`${urls(m.id).preview}#t=0.1`} preload="metadata" muted playsInline className="size-full object-cover" />
+                  <video src={`${m.src}#t=0.1`} preload="metadata" muted playsInline className="size-full object-cover" />
                   <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow">
                     <PlayIcon size={16} />
                   </span>
                 </>
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element -- served by the LAN host
-                <img src={urls(m.id).preview} alt="" loading="lazy" draggable={false} className="size-full object-cover" />
+                <img src={m.src} alt="" loading="lazy" draggable={false} className="size-full object-cover" />
               )}
             </button>
           ))}
@@ -261,9 +266,9 @@ export function MediaViewer({
   );
 }
 
-function Slide({ message, src, active, zoom, dragging }: { message: Message; src: string; active: boolean; zoom: Zoom; dragging: boolean }) {
-  const a = message.attachment!;
-  if (previewKind(a) === "video") {
+function Slide({ item, src, active, zoom, dragging }: { item: MediaItem; src: string; active: boolean; zoom: Zoom; dragging: boolean }) {
+  const a = item;
+  if (a.kind === "video") {
     // Plays only while it's the one on screen; swiping away pauses it.
     return active ? (
       <video src={src} controls autoPlay playsInline className="max-h-full max-w-full" />

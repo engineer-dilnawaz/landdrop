@@ -5,9 +5,10 @@ import { MAX_ATTACHMENT_BYTES, type Message } from "@landrop/protocol";
 import { Bubble, TIME_GAP_MS } from "./bubble";
 import { ChatAvatar, type ChatKind } from "./chat-list";
 import { ExpressionPanel } from "./expressions";
+import { FolderArchive } from "./folder";
 import type { Receipt } from "./receipts";
 import { RecorderFallback, RecordingBar, canRecordHere, useVoiceRecorder } from "./voice";
-import type { Progress } from "./landrop";
+import type { Progress, ReadingFolder } from "./landrop";
 import {
   Avatar,
   BackIcon,
@@ -22,6 +23,7 @@ import {
   MicIcon,
   PlusIcon,
   QrIcon,
+  FILLED_BUTTON,
   SHEET_ITEM,
   SendIcon,
   Sheet,
@@ -64,6 +66,7 @@ export function ChatView({
   onLeaveGroup,
   onClearChat,
   onOpenMedia,
+  onOpenFolder,
   onOpenSender,
   receiptOf,
   onReply,
@@ -82,6 +85,11 @@ export function ChatView({
     setText: (text: string) => void;
     removeFile: (index: number) => void;
     chooseFiles: (files: File[]) => void;
+    /** What a folder picker returned: the folder's files with their paths. */
+    pickFolder: (list: FileList) => void;
+    /** A folder dropped in; it's listed file by file, shown in `readingFolders` until it's ready. */
+    dropFolder: (entry: FileSystemDirectoryEntry) => void;
+    readingFolders: ReadingFolder[];
     cancelReply: () => void;
     /** Sends what's typed and picked, plus `extra` files (a voice message). */
     send: (extra?: File[]) => void;
@@ -98,6 +106,7 @@ export function ChatView({
   /** Clear the group or delete a private chat (asks first). */
   onClearChat: () => void;
   onOpenMedia: (message: Message) => void;
+  onOpenFolder: (message: Message) => void;
   /** Opens the private chat with whoever sent a message. */
   onOpenSender: (deviceId: string) => void;
   /** The ticks on one of your messages. */
@@ -247,6 +256,7 @@ export function ChatView({
                     downloadUrl={download}
                     previewUrl={preview}
                     onOpenMedia={() => onOpenMedia(m)}
+                    onOpenFolder={() => onOpenFolder(m)}
                     onReply={() => onReply(m)}
                     onLongPress={() => {
                       // iOS may already have started selecting under the finger; clear it before the menu opens.
@@ -302,13 +312,45 @@ export function ChatView({
               </button>
             </div>
           )}
-          {files.length > 0 && (
+          {(files.length > 0 || composer.readingFolders.length > 0) && (
             <ul className="flex flex-wrap gap-1.5 md:mx-24">
+              {composer.readingFolders.map((r) => (
+                <li key={r.id} className="flex min-w-60 flex-col gap-1.5 rounded-lg bg-panel py-2 pl-3 pr-1.5 text-[13px] shadow-sm" aria-live="polite">
+                  <div className="flex items-center gap-2">
+                    <span className="size-4 shrink-0 animate-spin rounded-full border-2 border-[#ffbc38] border-t-transparent" aria-hidden />
+                    <span className="max-w-44 truncate">{r.name}</span>
+                    <span className="flex-1 text-muted">
+                      {r.read.toLocaleString()} of {r.found.toLocaleString()} files
+                      {r.scanning ? ", finding more…" : `, ${(r.found - r.read).toLocaleString()} left`}
+                    </span>
+                    <button
+                      aria-label={`Stop adding ${r.name}`}
+                      title="Stop"
+                      className="flex size-6 items-center justify-center rounded-full text-muted hover:bg-hover"
+                      onClick={r.stop}
+                    >
+                      <CloseIcon size={16} />
+                    </button>
+                  </div>
+                  <span className="mr-1.5 h-1 overflow-hidden rounded-full bg-field">
+                    <span className="block h-full rounded-full bg-[#ffbc38] transition-[width]" style={{ width: `${r.found ? (r.read / r.found) * 100 : 0}%` }} />
+                  </span>
+                </li>
+              ))}
               {files.map((f, i) => (
                 <li key={`${f.name}-${i}`} className="flex items-center gap-2 rounded-lg bg-panel py-1.5 pl-3 pr-1.5 text-[13px] shadow-sm">
-                  <FileIcon size={16} />
-                  <span className="max-w-44 truncate">{f.name}</span>
-                  <span className="text-muted">{formatBytes(f.size)}</span>
+                  {f instanceof FolderArchive ? (
+                    <span className="text-[#ffbc38]">
+                      <FolderIcon size={16} />
+                    </span>
+                  ) : (
+                    <FileIcon size={16} />
+                  )}
+                  <span className="max-w-44 truncate">{f instanceof FolderArchive ? f.name.replace(/\.zip$/, "") : f.name}</span>
+                  <span className="text-muted">
+                    {f instanceof FolderArchive && `${f.files.length.toLocaleString()} ${f.files.length === 1 ? "file" : "files"} · `}
+                    {formatBytes(f.size)}
+                  </span>
                   <button
                     aria-label={`Remove ${f.name}`}
                     className="flex size-6 items-center justify-center rounded-full text-muted hover:bg-hover"
@@ -342,7 +384,7 @@ export function ChatView({
               />
             ) : (
               <>
-                <AttachMenu onFiles={composer.chooseFiles} />
+                <AttachMenu onFiles={composer.chooseFiles} onFolder={composer.pickFolder} onDropFolder={composer.dropFolder} />
                 <div className="flex min-h-[42px] flex-1 items-end rounded-lg bg-panel pr-3 pl-1 md:bg-field dark:bg-field">
                   <button
                     onClick={() => {
@@ -410,9 +452,109 @@ export function ChatView({
   );
 }
 
-/** WhatsApp's "+" button: a sheet of things to attach. Each opens the file picker for its kind; Folder arrives with folder sharing. */
-function AttachMenu({ onFiles }: { onFiles: (files: File[]) => void }) {
+/** iPhones and iPads can't pick folders in the browser; they can still open folders others share. */
+const canPickFolders = () =>
+  typeof navigator !== "undefined" && !/iP(hone|ad|od)/.test(navigator.userAgent) && !(/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+/** The LANDrop Mac app picks folders with the Mac's own picker, which asks nothing more. */
+const inMacApp = () => typeof navigator !== "undefined" && /Electron\//.test(navigator.userAgent);
+
+type FolderHandler = (list: FileList) => void;
+
+/** A file input that picks a whole folder, each file with its path inside it. */
+function FolderInput({ onFolder }: { onFolder: FolderHandler }) {
+  return (
+    <input
+      type="file"
+      className="hidden"
+      // Not in React's types.
+      {...{ webkitdirectory: "" }}
+      onChange={(e) => {
+        if (e.target.files?.length) onFolder(e.target.files);
+        e.target.value = "";
+      }}
+    />
+  );
+}
+
+/**
+ * Sending a folder from a browser. Dropping one in needs no more questions; choosing one makes the
+ * browser ask first ("Upload … files to this site?"), a prompt no website can replace, so this says so.
+ */
+function FolderSheet({
+  onFolder,
+  onDropFolder,
+  onFiles,
+  onClose,
+}: {
+  onFolder: FolderHandler;
+  onDropFolder: (entry: FileSystemDirectoryEntry) => void;
+  onFiles: (files: File[]) => void;
+  onClose: () => void;
+}) {
+  const [over, setOver] = useState(false);
+  // The chat behind has its own drop handling; this sheet keeps its drags to itself.
+  const drag = (e: React.DragEvent, entering: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOver(entering);
+  };
+  return (
+    <Sheet labelledBy="folder-sheet-title" onClose={onClose}>
+      <div className="px-6 pb-2 pt-2">
+        <h2 id="folder-sheet-title" className="text-[19px] font-medium">
+          Send a folder
+        </h2>
+        <p className="mt-1 text-[14px] text-muted">It’s added straight away, whatever its size, and opens for others the moment you send it.</p>
+        <div
+          onDragEnter={(e) => drag(e, true)}
+          onDragOver={(e) => drag(e, true)}
+          onDragLeave={(e) => drag(e, false)}
+          onDrop={(e) => {
+            drag(e, false);
+            // Folders are added as folders; any plain files dropped with them go in as files.
+            const items = [...e.dataTransfer.items].filter((item) => item.kind === "file");
+            const entries = items.map((item) => item.webkitGetAsEntry());
+            onFiles(items.filter((_, i) => !entries[i]?.isDirectory).map((item) => item.getAsFile()!).filter(Boolean));
+            for (const entry of entries) if (entry?.isDirectory) onDropFolder(entry as FileSystemDirectoryEntry);
+            onClose();
+          }}
+          className={`mt-5 flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-6 py-8 text-center transition-colors pointer-coarse:hidden ${
+            over ? "border-accent bg-accent/10" : "border-divider"
+          }`}
+        >
+          <span className="flex size-14 items-center justify-center rounded-2xl bg-[#ffbc38] text-white">
+            <FolderIcon size={30} />
+          </span>
+          <p className="text-[16px] font-medium">Drop a folder here</p>
+          <p className="text-[13px] text-muted">From Finder or File Explorer</p>
+        </div>
+        <label className={`${FILLED_BUTTON} mt-5 flex cursor-pointer justify-center`}>
+          Choose folder…
+          <FolderInput
+            onFolder={(list) => {
+              onFolder(list);
+              onClose();
+            }}
+          />
+        </label>
+        <p className="mt-2 text-center text-[12.5px] text-muted">Your browser asks you to confirm before it shares a folder.</p>
+      </div>
+    </Sheet>
+  );
+}
+
+/** WhatsApp's "+" button: a sheet of things to attach. Each opens the file picker for its kind. */
+function AttachMenu({
+  onFiles,
+  onFolder,
+  onDropFolder,
+}: {
+  onFiles: (files: File[]) => void;
+  onFolder: FolderHandler;
+  onDropFolder: (entry: FileSystemDirectoryEntry) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [folderSheet, setFolderSheet] = useState(false);
   const pick = (input: HTMLInputElement) => {
     onFiles([...(input.files ?? [])]);
     input.value = "";
@@ -424,6 +566,11 @@ function AttachMenu({ onFiles }: { onFiles: (files: File[]) => void }) {
       {label}
       <input type="file" multiple className="hidden" onChange={(e) => pick(e.target)} {...attrs} />
     </label>
+  );
+  const folderIcon = (
+    <span className="text-[#ffbc38]">
+      <FolderIcon />
+    </span>
   );
   return (
     <>
@@ -442,15 +589,38 @@ function AttachMenu({ onFiles }: { onFiles: (files: File[]) => void }) {
           {picker("Document", <FileIcon />, "#7f66ff", {})}
           {picker("Photos & videos", <ImageIcon />, "#007bfc", { accept: "image/*,video/*" })}
           {picker("Camera", <CameraIcon />, "#ff2e74", { accept: "image/*,video/*", capture: "environment", multiple: false }, "md:hidden")}
-          <div className={`${SHEET_ITEM} cursor-default opacity-50 hover:bg-transparent`} aria-disabled="true">
-            <span className="text-[#ffbc38]">
-              <FolderIcon />
-            </span>
-            Folder
-            <span className="ml-auto rounded-full border border-divider px-2 text-[11px] text-muted">Soon</span>
-          </div>
+          {!canPickFolders() ? (
+            <div className={`${SHEET_ITEM} cursor-default opacity-50 hover:bg-transparent`} aria-disabled="true">
+              {folderIcon}
+              Folder
+              <span className="ml-auto text-[12px] text-muted">Not on iPhone or iPad</span>
+            </div>
+          ) : inMacApp() ? (
+            <label className={`${SHEET_ITEM} cursor-pointer`}>
+              {folderIcon}
+              Folder
+              <FolderInput
+                onFolder={(folder) => {
+                  onFolder(folder);
+                  setOpen(false);
+                }}
+              />
+            </label>
+          ) : (
+            <button
+              className={SHEET_ITEM}
+              onClick={() => {
+                setOpen(false);
+                setFolderSheet(true);
+              }}
+            >
+              {folderIcon}
+              Folder
+            </button>
+          )}
         </Sheet>
       )}
+      {folderSheet && <FolderSheet onFolder={onFolder} onDropFolder={onDropFolder} onFiles={onFiles} onClose={() => setFolderSheet(false)} />}
     </>
   );
 }

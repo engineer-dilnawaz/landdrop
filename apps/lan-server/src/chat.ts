@@ -1,11 +1,12 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
+  MAX_AVATAR_BYTES,
   MAX_GROUP_MEMBERS,
   chatMembers,
   isAvailable,
@@ -14,6 +15,7 @@ import {
   type AttachmentStatus,
   type ChatRead,
   type Device,
+  type FolderFile,
   type Group,
   type KnownDevice,
   type Message,
@@ -45,6 +47,7 @@ interface MessageRow {
   att_mime: string | null;
   att_status: AttachmentStatus | null;
   att_sha256: string | null;
+  att_folder_files: number | null;
   reply_to_id: string | null;
   reply_sender_id: string | null;
   reply_sender_name: string | null;
@@ -101,6 +104,16 @@ CREATE TABLE IF NOT EXISTS chat_reads (
   at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chat_reads_chat ON chat_reads (chat_id, device_id, up_to);
+-- A shared folder's files (JSON), in the order of its bytes; can run to tens of megabytes, so
+-- kept out of the messages table and read only when the folder is opened.
+CREATE TABLE IF NOT EXISTS folder_lists (
+  message_id TEXT PRIMARY KEY,
+  files TEXT NOT NULL
+);
+-- However a folder's message goes, its list goes with it.
+CREATE TRIGGER IF NOT EXISTS folder_lists_cleanup AFTER DELETE ON messages BEGIN
+  DELETE FROM folder_lists WHERE message_id = old.id;
+END;
 CREATE TABLE IF NOT EXISTS chat_clears (
   device_id TEXT NOT NULL,
   chat_id TEXT NOT NULL,
@@ -117,6 +130,8 @@ const ADDED_COLUMNS = [
   "reply_sender_id TEXT",
   // Messages from before private chats existed all belong to the group.
   "chat_id TEXT NOT NULL DEFAULT 'group'",
+  // How many files a shared folder holds; set only for folders.
+  "att_folder_files INTEGER",
 ];
 
 const REPLY_PREVIEW_LENGTH = 120;
@@ -134,6 +149,7 @@ export class ChatStore {
   private constructor(
     private readonly db: DatabaseSync,
     private readonly filesDir: string,
+    private readonly avatarsDir: string,
     private readonly broadcast: Broadcast,
   ) {}
 
@@ -149,7 +165,9 @@ export class ChatStore {
     db.exec("CREATE INDEX IF NOT EXISTS messages_chat ON messages (chat_id, created_at)");
     const deviceColumns = (db.prepare("PRAGMA table_info(devices)").all() as { name: string }[]).map((c) => c.name);
     if (!deviceColumns.includes("machine")) db.exec("ALTER TABLE devices ADD COLUMN machine TEXT");
-    const store = new ChatStore(db, filesDir, broadcast);
+    if (!deviceColumns.includes("avatar_at")) db.exec("ALTER TABLE devices ADD COLUMN avatar_at INTEGER");
+    await mkdir(join(dataDir, "avatars"), { recursive: true });
+    const store = new ChatStore(db, filesDir, join(dataDir, "avatars"), broadcast);
     await store.failInterruptedUploads();
     // Live files exist only in their senders' tabs, which a restart has disconnected.
     db.exec("DELETE FROM messages WHERE att_status = 'live'");
@@ -185,10 +203,40 @@ export class ChatStore {
 
   /** Every device that has ever joined, with its current name and when it was last connected. */
   directory(): KnownDevice[] {
-    const rows = this.db.prepare("SELECT id, name, last_seen AS lastSeen, machine FROM devices").all() as unknown as (KnownDevice & {
-      machine: string | null;
-    })[];
-    return rows.map(({ machine, ...d }) => (machine ? { ...d, machine } : d));
+    const rows = this.db
+      .prepare("SELECT id, name, last_seen AS lastSeen, machine, avatar_at AS avatarAt FROM devices")
+      .all() as unknown as (KnownDevice & { machine: string | null; avatarAt: number | null })[];
+    return rows.map(({ machine, avatarAt, ...d }) => ({ ...d, ...(machine && { machine }), ...(avatarAt && { avatarAt }) }));
+  }
+
+  // ---------- Profile photos ----------
+
+  /** Sets a device's profile photo. Only real JPEG, PNG or WebP images are kept, whatever they're labelled. */
+  async setAvatar(id: string, data: Buffer): Promise<KnownDevice> {
+    if (data.length === 0 || data.length > MAX_AVATAR_BYTES) throw new HttpError(413, "That photo is too large");
+    if (!imageType(data)) throw new HttpError(415, "Choose a JPEG, PNG or WebP photo");
+    await writeFile(join(this.avatarsDir, id), data);
+    this.db.prepare("UPDATE devices SET avatar_at = ? WHERE id = ?").run(this.clock(), id);
+    return this.knownDevice(id);
+  }
+
+  async removeAvatar(id: string): Promise<KnownDevice> {
+    await rm(join(this.avatarsDir, id), { force: true });
+    this.db.prepare("UPDATE devices SET avatar_at = NULL WHERE id = ?").run(id);
+    return this.knownDevice(id);
+  }
+
+  /** A device's profile photo and its image type, or undefined if it has none. */
+  async avatar(id: string): Promise<{ data: Buffer; type: string } | undefined> {
+    const known = this.directory().find((d) => d.id === id);
+    if (!known?.avatarAt) return undefined;
+    const data = await readFile(join(this.avatarsDir, id)).catch(() => undefined);
+    const type = data && imageType(data);
+    return data && type ? { data, type } : undefined;
+  }
+
+  private knownDevice(id: string): KnownDevice {
+    return this.directory().find((d) => d.id === id)!;
   }
 
   /** Records which phone or computer a device (one browser) runs on. */
@@ -243,7 +291,8 @@ export class ChatStore {
   /** Records that a device has read a chat up to `upTo`; returns the new read, or nothing if it isn't further than before. */
   markRead(chatId: string, deviceId: string, upTo: number): ChatRead | undefined {
     if (!this.canSee(chatId, deviceId)) throw new HttpError(404, "Chat not found");
-    const now = Date.now();
+    // From the same clock as messages, so one sent in the same millisecond still counts as after the read.
+    const now = this.clock();
     // Nobody can have read a message that doesn't exist yet.
     const capped = Math.min(upTo, now);
     const { furthest } = this.db
@@ -291,7 +340,7 @@ export class ChatStore {
   createAttachment(
     sender: Device,
     chatId: string,
-    { live, ...file }: Omit<Attachment, "status" | "sha256"> & { live: boolean },
+    { live, folder, ...file }: Omit<Attachment, "status" | "sha256" | "folder"> & { live: boolean; folder?: { files: FolderFile[] } },
     replyToId?: string,
   ): Message {
     this.assertCanPost(chatId, sender.id);
@@ -301,12 +350,29 @@ export class ChatStore {
       senderId: sender.id,
       senderName: sender.name,
       createdAt: this.clock(),
-      attachment: { ...file, status: live ? "live" : "uploading" },
+      // A folder is always a zip, whatever its sender labelled it, so it downloads as one.
+      attachment: folder
+        ? {
+            ...file,
+            name: file.name.endsWith(".zip") ? file.name : `${file.name}.zip`,
+            mimeType: "application/zip",
+            folder: { files: folder.files.length },
+            status: live ? "live" : "uploading",
+          }
+        : { ...file, status: live ? "live" : "uploading" },
       ...this.replyTo(replyToId, chatId),
     };
     this.insert(message);
+    if (folder) this.db.prepare("INSERT INTO folder_lists (message_id, files) VALUES (?, ?)").run(message.id, JSON.stringify(folder.files));
     this.broadcast({ type: "message:created", message }, chatId);
     return message;
+  }
+
+  /** What's in a shared folder, in the order of its bytes. */
+  folderFiles(id: string): FolderFile[] {
+    const row = this.db.prepare("SELECT files FROM folder_lists WHERE message_id = ?").get(id) as { files: string } | undefined;
+    if (!row) throw new HttpError(422, "This folder can't be opened");
+    return JSON.parse(row.files) as FolderFile[];
   }
 
   /** Streams an attachment to disk, hashing as bytes arrive. Memory use is bounded by stream buffers. */
@@ -371,7 +437,7 @@ export class ChatStore {
     return this.emitUpdated(id);
   }
 
-  /** An attachment this device may read now: stored on the host ("ready") or streamed from its sender ("live"). */
+  /** An attachment this device may read now (see isAvailable). */
   availableAttachment(id: string, deviceId: string): Attachment {
     const message = this.get(id);
     const attachment = message && this.canSee(message.chatId, deviceId) ? message.attachment : undefined;
@@ -579,8 +645,8 @@ export class ChatStore {
     this.db
       .prepare(
         `INSERT INTO messages (id, chat_id, sender_id, sender_name, created_at, text, att_name, att_size, att_mime, att_status,
-                               reply_to_id, reply_sender_id, reply_sender_name, reply_preview)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                               att_folder_files, reply_to_id, reply_sender_id, reply_sender_name, reply_preview)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -593,6 +659,7 @@ export class ChatStore {
         m.attachment?.size ?? null,
         m.attachment?.mimeType ?? null,
         m.attachment?.status ?? null,
+        m.attachment?.folder?.files ?? null,
         m.replyTo?.id ?? null,
         m.replyTo?.senderId ?? null,
         m.replyTo?.senderName ?? null,
@@ -631,6 +698,7 @@ function toMessage(row: MessageRow): Message {
         mimeType: row.att_mime!,
         status: row.att_status!,
         ...(row.att_sha256 !== null && { sha256: row.att_sha256 }),
+        ...(row.att_folder_files !== null && { folder: { files: row.att_folder_files } }),
       },
     }),
     ...(row.reply_to_id !== null && {
@@ -642,4 +710,12 @@ function toMessage(row: MessageRow): Message {
       },
     }),
   };
+}
+
+/** What an image really is, from its first bytes: JPEG, PNG or WebP, else undefined. */
+function imageType(data: Buffer): string | undefined {
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "image/jpeg";
+  if (data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (data.length >= 12 && data.toString("latin1", 0, 4) === "RIFF" && data.toString("latin1", 8, 12) === "WEBP") return "image/webp";
+  return undefined;
 }

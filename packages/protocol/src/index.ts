@@ -12,6 +12,15 @@ export const API_PREFIX = "/api/v1";
 export const MAX_TEXT_LENGTH = 64 * 1024;
 /** Files up to this size are uploaded to the host and stay available; larger ones are streamed live from the sender. */
 export const MAX_ATTACHMENT_BYTES = 500 * 1024 * 1024;
+/** Folders up to this size are uploaded to the host; bigger ones are shared live from the sender. */
+export const MAX_FOLDER_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
+/**
+ * Folders can hold any number of files. This only bounds the size of their list of files (about
+ * 130 bytes a file, so millions of files) so one request can't exhaust the host's memory.
+ */
+export const MAX_FOLDER_LIST_BYTES = 256 * 1024 * 1024;
+/** Longest "/"-separated path of a file inside a shared folder. */
+export const MAX_FOLDER_PATH_LENGTH = 1024;
 export const MAX_FILE_NAME_LENGTH = 255;
 export const MAX_DEVICE_NAME_LENGTH = 64;
 /** How many recent messages per chat a device receives when it joins. */
@@ -34,7 +43,12 @@ export interface Device {
 export interface KnownDevice extends Device {
   /** When the device was last connected (ms since epoch). */
   lastSeen: number;
+  /** When its profile photo was last set, if it has one: fetch it from routes.deviceAvatar. */
+  avatarAt?: number;
 }
+
+/** Profile photos are small squares made in the browser; anything bigger is refused. */
+export const MAX_AVATAR_BYTES = 512 * 1024;
 
 /** Something else on the host's network (a phone, TV, the router) that isn't using LANDrop. */
 export interface NetworkDevice {
@@ -124,9 +138,12 @@ export interface MessageInfo {
  */
 export type AttachmentStatus = "uploading" | "ready" | "failed" | "live";
 
-/** Readable now: stored on the host, or live from a sender who is still connected. */
-export const isAvailable = (attachment: Pick<Attachment, "status">) =>
-  attachment.status === "ready" || attachment.status === "live";
+/**
+ * Readable now: stored on the host, or live from a sender who is still connected. A folder is
+ * readable while it uploads too: its sender serves it meanwhile, so it opens the moment it's sent.
+ */
+export const isAvailable = (attachment: Pick<Attachment, "status" | "folder">) =>
+  attachment.status === "ready" || attachment.status === "live" || (!!attachment.folder && attachment.status === "uploading");
 
 export interface Attachment {
   name: string;
@@ -135,6 +152,25 @@ export interface Attachment {
   status: AttachmentStatus;
   /** Set once the sender's checksum matched what the host received. */
   sha256?: string;
+  /**
+   * A shared folder: the attachment's bytes are its files back to back, in the order the sender
+   * listed them, so it's ready to send the moment it's picked. The host lists and serves it file by
+   * file and downloads it whole as a zip (its name ends in ".zip"). `files` is how many files it holds.
+   */
+  folder?: { files: number };
+}
+
+/** One file inside a shared folder. */
+export interface FolderFile {
+  /** "/"-separated path inside the folder. */
+  path: string;
+  size: number;
+}
+
+/** What's directly inside one subfolder of a shared folder: its subfolders (with what they hold in total) and files. */
+export interface FolderListing {
+  folders: { name: string; files: number; size: number }[];
+  files: FolderFile[];
 }
 
 /** A snapshot of the message being replied to, kept even if the original is later removed. */
@@ -160,6 +196,16 @@ export interface Message {
 
 const ReplyToIdSchema = z.string().uuid().optional();
 
+/** A relative path that can't climb out of the folder when it's unzipped. */
+const FolderFileSchema = z.object({
+  path: z
+    .string()
+    .min(1)
+    .max(MAX_FOLDER_PATH_LENGTH)
+    .refine((p) => !/[\\\u0000-\u001f\u007f]/.test(p) && p.split("/").every((part) => part && part !== "." && part !== ".."), "Invalid path"),
+  size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+});
+
 export const CreateMessageRequestSchema = z.union([
   z.object({ chatId: ChatIdSchema, text: z.string().trim().min(1).max(MAX_TEXT_LENGTH), replyToId: ReplyToIdSchema }),
   z.object({
@@ -172,8 +218,15 @@ export const CreateMessageRequestSchema = z.union([
         mimeType: z.string().max(255).default("application/octet-stream"),
         /** Streamed from the sender instead of uploaded; the only way to share a file over the upload cap. */
         live: z.boolean().default(false),
+        /** What's in a folder, in the order its bytes are sent. */
+        folder: z.object({ files: z.array(FolderFileSchema).min(1) }).optional(),
       })
-      .refine((a) => a.live || a.size <= MAX_ATTACHMENT_BYTES, "Files over 500 MB are shared live from the sender"),
+      .refine(
+        (a) => a.live || a.size <= (a.folder ? MAX_FOLDER_UPLOAD_BYTES : MAX_ATTACHMENT_BYTES),
+        "Over the upload cap: share it live from the sender instead",
+      )
+      .refine((a) => !a.folder || a.folder.files.reduce((sum, f) => sum + f.size, 0) === a.size, "The folder's files don't add up to its size")
+      .refine((a) => !a.folder || new Set(a.folder.files.map((f) => f.path)).size === a.folder.files.length, "The folder lists a file twice"),
   }),
 ]);
 export type CreateMessageRequest = z.input<typeof CreateMessageRequestSchema>;
@@ -238,6 +291,8 @@ export type ServerEvent =
       isHost: boolean;
     }
   | { type: "presence:update"; online: Device[] }
+  /** To everyone: a device changed its profile photo. */
+  | { type: "device:updated"; device: KnownDevice }
   /** To a chat's members: one of them has read further. */
   | { type: "chat:read"; read: ChatRead }
   /** To a group's members whenever it is created, renamed or gains or loses members. */
@@ -280,6 +335,12 @@ export const routes = {
   chat: (id: string) => `${API_PREFIX}/chats/${id}`,
   /** POST MarkReadRequest: this device has read the chat up to then. */
   chatRead: (id: string) => `${API_PREFIX}/chats/${id}/read`,
+  /** GET (with ?token=) → the device's profile photo. PUT a JPEG, PNG or WebP (yours only); DELETE removes it. */
+  deviceAvatar: (id: string) => `${API_PREFIX}/devices/${id}/avatar`,
+  /** GET ?dir=… → FolderListing: what's directly inside one subfolder ("" or no dir for the top). */
+  folderFiles: (id: string) => `${API_PREFIX}/messages/${id}/folder`,
+  /** GET ?path=…&token=… → one file from a shared folder (add &preview=1 to show a photo or video inline). */
+  folderFile: (id: string) => `${API_PREFIX}/messages/${id}/folder/file`,
   /** GET → MessageInfo. */
   messageInfo: (id: string) => `${API_PREFIX}/messages/${id}/info`,
   message: (id: string) => `${API_PREFIX}/messages/${id}`,

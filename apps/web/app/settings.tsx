@@ -1,7 +1,7 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-import { Avatar, DoubleTickIcon, TickIcon } from "./ui";
+import { useState, useSyncExternalStore } from "react";
+import { Avatar, CameraIcon, DoubleTickIcon, ImageIcon, SHEET_ITEM, Sheet, TickIcon, TrashIcon } from "./ui";
 
 export type Theme = "system" | "light" | "dark";
 
@@ -80,21 +80,85 @@ const THEMES = [
 const useTheme = () => useSyncExternalStore(subscribe, readTheme, (): Theme => "system");
 
 /** WhatsApp-style settings, shown in the list column. Sections get added here as features land. */
-export function Settings({ selfName, selfId, onRename }: { selfName?: string; selfId?: string; onRename: () => void }) {
+export function Settings({
+  selfName,
+  selfId,
+  hasPhoto,
+  onRename,
+  onPhoto,
+}: {
+  selfName?: string;
+  selfId?: string;
+  hasPhoto: boolean;
+  onRename: () => void;
+  /** A new profile photo, or undefined to remove it. */
+  onPhoto: (photo: Blob | undefined) => void;
+}) {
   const theme = useTheme();
+  const [photoSheet, setPhotoSheet] = useState(false);
+  const [photoError, setPhotoError] = useState<string>();
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-16 shrink-0 items-center px-5 pt-[env(safe-area-inset-top)] box-content md:box-border md:pt-0">
         <h1 className="text-[22px] font-bold">Settings</h1>
       </header>
       <div className="flex-1 overflow-y-auto">
-        <button onClick={onRename} className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-hover">
-          <Avatar name={selfName ?? "?"} seed={selfId} size="profile" />
-          <span className="min-w-0 flex-1">
+        <div className="flex items-center gap-4 px-5 py-4">
+          {/* Like WhatsApp: tap your photo to change it. */}
+          <button
+            onClick={() => setPhotoSheet(true)}
+            aria-label={hasPhoto ? "Change profile photo" : "Add a profile photo"}
+            title={hasPhoto ? "Change profile photo" : "Add a profile photo"}
+            className="group relative shrink-0 rounded-full"
+          >
+            <Avatar name={selfName ?? "?"} seed={selfId} size="profile" />
+            <span className="absolute -right-0.5 -bottom-0.5 flex size-7 items-center justify-center rounded-full border-2 border-panel bg-accent text-white transition-transform group-hover:scale-110">
+              <CameraIcon size={15} />
+            </span>
+          </button>
+          <button onClick={onRename} className="min-w-0 flex-1 rounded-lg px-2 py-1 text-left hover:bg-hover">
             <span className="block truncate text-[19px]">{selfName ?? "Joining…"}</span>
             <span className="block text-[14px] text-muted">Tap to change your name</span>
-          </span>
-        </button>
+          </button>
+        </div>
+        {photoError && <p className="px-5 pb-3 text-[13px] text-danger">{photoError}</p>}
+        {photoSheet && (
+          <Sheet label="Profile photo" onClose={() => setPhotoSheet(false)}>
+            <label className={`${SHEET_ITEM} cursor-pointer`}>
+              <ImageIcon />
+              {hasPhoto ? "Choose a new photo" : "Choose a photo"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  setPhotoSheet(false);
+                  if (!file) return;
+                  try {
+                    setPhotoError(undefined);
+                    onPhoto(await squarePhoto(file));
+                  } catch {
+                    setPhotoError("That photo couldn't be opened. Try a JPEG or PNG.");
+                  }
+                }}
+              />
+            </label>
+            {hasPhoto && (
+              <button
+                onClick={() => {
+                  setPhotoSheet(false);
+                  onPhoto(undefined);
+                }}
+                className={`${SHEET_ITEM} text-danger`}
+              >
+                <TrashIcon />
+                Remove photo
+              </button>
+            )}
+          </Sheet>
+        )}
 
         <section aria-labelledby="theme-title" className="border-t border-divider px-5 py-5">
           <h2 id="theme-title" className="text-[15px] text-muted">
@@ -301,5 +365,22 @@ function ChatLooks() {
       </div>
       <p className="mt-3 text-[13px] text-muted">Only changes how LANDrop looks on this device.</p>
     </section>
+  );
+}
+
+const PHOTO_SIZE = 256;
+
+/** The middle square of a photo, 256px across as a JPEG: small enough to show everywhere instantly. */
+async function squarePhoto(file: File): Promise<Blob> {
+  const image = await createImageBitmap(file);
+  const side = Math.min(image.width, image.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = PHOTO_SIZE;
+  const context = canvas.getContext("2d")!;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(image, (image.width - side) / 2, (image.height - side) / 2, side, side, 0, 0, PHOTO_SIZE, PHOTO_SIZE);
+  image.close();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Couldn't make the photo"))), "image/jpeg", 0.85),
   );
 }

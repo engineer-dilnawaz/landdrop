@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { hostname, networkInterfaces } from "node:os";
 import type { Socket } from "node:net";
-import { PassThrough } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
+import { createGunzip } from "node:zlib";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -14,6 +15,8 @@ import {
   CreateGroupRequestSchema,
   CreateMessageRequestSchema,
   HISTORY_LIMIT,
+  MAX_AVATAR_BYTES,
+  MAX_FOLDER_LIST_BYTES,
   MAX_TEXT_LENGTH,
   MarkReadRequestSchema,
   PROTOCOL_VERSION,
@@ -23,12 +26,15 @@ import {
   routes,
   type Attachment,
   type Device,
+  type FolderFile,
   type NetworkDevice,
   type ServerEvent,
 } from "@landrop/protocol";
 import { ChatStore, HttpError } from "./chat.js";
 import { LiveFiles, type TabKey } from "./live.js";
 import { hardwareAddressOf, scanNetwork as scanHostNetwork } from "./network.js";
+import { FolderIndex } from "./folder.js";
+import { zipFolder } from "./zip.js";
 import { isAllowedOrigin } from "./origin.js";
 
 export interface AppOptions {
@@ -160,7 +166,8 @@ export async function buildApp({
   await app.register(cors, {
     origin: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allowedHeaders: ["authorization", "content-type"],
+    // content-encoding: big folders' lists of files are sent gzipped.
+    allowedHeaders: ["authorization", "content-type", "content-encoding"],
   });
   await app.register(websocket, { options: { maxPayload: MAX_TEXT_LENGTH * 2 } });
   // Registered after the websocket plugin so its hooks still close rejected upgrade sockets.
@@ -183,6 +190,8 @@ export async function buildApp({
 
   // Attachment bodies are streamed by the route itself, never buffered by a parser.
   app.addContentTypeParser("application/octet-stream", (_request, _payload, done) => done(null));
+  // Profile photos: read from the raw request by their route, which checks what the bytes really are.
+  app.addContentTypeParser(/^image\//, (_request, _payload, done) => done(null));
 
   // ---------- Control plane ----------
 
@@ -301,14 +310,18 @@ export async function buildApp({
     });
   });
 
-  app.post(routes.messages, async (request, reply) => {
+  // Room for a folder's list of files, which can run to tens of megabytes; senders gzip big ones.
+  app.post(routes.messages, { bodyLimit: MAX_FOLDER_LIST_BYTES, preParsing: gunzipBody }, async (request, reply) => {
     const { device, tab } = authenticate(request);
     const body = parse(CreateMessageRequestSchema, request.body);
     const message =
       "text" in body
         ? store.createText(device, body.chatId, body.text, body.replyToId)
         : store.createAttachment(device, body.chatId, body.attachment, body.replyToId);
-    if (message.attachment?.status === "live") live.own(message.id, tab);
+    // A folder's sender also serves it while it uploads, so it can be opened straight away.
+    if (message.attachment?.status === "live" || message.attachment?.folder) live.own(message.id, tab);
+    // Indexed now, while its list is in hand, so the first person to open it doesn't wait.
+    if ("attachment" in body && body.attachment.folder) indexOf(message.id, body.attachment.folder.files);
     return reply.code(201).send(message);
   });
 
@@ -359,6 +372,45 @@ export async function buildApp({
     return reply.code(204).send();
   });
 
+  // ---------- Profile photos ----------
+
+  app.put<{ Params: MessageParams }>(routes.deviceAvatar(":id"), async (request) => {
+    const { device } = authenticate(request);
+    if (request.params.id !== device.id) throw new HttpError(403, "You can only change your own photo");
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of request.raw as AsyncIterable<Buffer>) {
+      size += chunk.length;
+      // Stop reading early rather than buffer an oversized body.
+      if (size > MAX_AVATAR_BYTES) throw new HttpError(413, "That photo is too large");
+      chunks.push(chunk);
+    }
+    const updated = await store.setAvatar(device.id, Buffer.concat(chunks));
+    broadcast({ type: "device:updated", device: updated });
+    return updated;
+  });
+
+  app.delete<{ Params: MessageParams }>(routes.deviceAvatar(":id"), async (request) => {
+    const { device } = authenticate(request);
+    if (request.params.id !== device.id) throw new HttpError(403, "You can only change your own photo");
+    const updated = await store.removeAvatar(device.id);
+    broadcast({ type: "device:updated", device: updated });
+    return updated;
+  });
+
+  app.get<{ Params: MessageParams }>(routes.deviceAvatar(":id"), async (request, reply) => {
+    authenticate(request, true);
+    const avatar = await store.avatar(request.params.id);
+    if (!avatar) throw new HttpError(404, "No photo");
+    // The URL carries the photo's version, so it can be cached until it changes.
+    return reply
+      .header("content-type", avatar.type)
+      .header("x-content-type-options", "nosniff")
+      .header("content-security-policy", "default-src 'none'; sandbox")
+      .header("cache-control", "private, max-age=31536000, immutable")
+      .send(avatar.data);
+  });
+
   // ---------- Data plane ----------
 
   app.put<{ Params: MessageParams }>(routes.attachmentData(":id"), async (request) => {
@@ -386,6 +438,7 @@ export async function buildApp({
     reply
       .header("content-type", "application/octet-stream")
       .header("content-disposition", contentDisposition(attachment.name));
+    if (attachment.folder) return sendFolderZip(reply, request.params.id, attachment);
     return sendFile(request, reply, request.params.id, attachment);
   });
 
@@ -407,16 +460,86 @@ export async function buildApp({
    * Sends an attachment, honouring a single Range request so videos can stream and seek (required by
    * iOS Safari). Stored files come from disk; live files from their sender's tab.
    */
-  const sendFile = async (request: FastifyRequest, reply: FastifyReply, id: string, attachment: Attachment) => {
+  const sendFile = (request: FastifyRequest, reply: FastifyReply, id: string, attachment: Attachment) =>
+    sendSlice(request, reply, id, attachment, 0, attachment.size);
+
+  /** Sends `length` bytes of an attachment from `base` as if they were a whole file: one file inside a folder's zip. */
+  const sendSlice = async (request: FastifyRequest, reply: FastifyReply, id: string, attachment: Attachment, base: number, length: number) => {
     reply.header("x-content-type-options", "nosniff").header("accept-ranges", "bytes");
-    const range = parseRange(request.headers.range, attachment.size);
+    const range = parseRange(request.headers.range, length);
     if (range === "unsatisfiable") {
-      return reply.code(416).header("content-range", `bytes */${attachment.size}`).send();
+      return reply.code(416).header("content-range", `bytes */${length}`).send();
     }
-    const { start, end } = range ?? { start: 0, end: attachment.size - 1 };
-    const body = attachment.status === "live" ? await streamLive(id, start, end) : store.openFile(id, range);
-    if (range) reply.code(206).header("content-range", `bytes ${start}-${end}/${attachment.size}`);
+    const { start, end } = range ?? { start: 0, end: length - 1 };
+    const body = await readBytes(id, attachment, base + start, base + end);
+    if (range) reply.code(206).header("content-range", `bytes ${start}-${end}/${length}`);
     return reply.header("content-length", end - start + 1).send(body);
+  };
+
+  /** Bytes [start, end] of an attachment: from disk once it's stored, until then from its sender's tab. */
+  const readBytes = async (id: string, attachment: Attachment, start: number, end: number): Promise<AsyncIterable<Buffer>> => {
+    if (attachment.status !== "ready") return streamLive(id, start, end);
+    return end < start ? Readable.from([]) : store.openFile(id, { start, end });
+  };
+
+  // ---------- Shared folders ----------
+
+  /**
+   * Indexes of recently opened folders: a folder never changes. Kept to about two million files in
+   * all, so a few huge folders can't use up the host's memory.
+   */
+  const folderIndexes = new Map<string, FolderIndex>();
+  const indexOf = (id: string, files?: FolderFile[]) => {
+    let index = folderIndexes.get(id);
+    if (index) folderIndexes.delete(id); // re-added below as the most recent
+    else index = new FolderIndex(files ?? store.folderFiles(id));
+    folderIndexes.set(id, index);
+    let cached = [...folderIndexes.values()].reduce((sum, i) => sum + i.files.length, 0);
+    for (const [key, old] of folderIndexes) {
+      if (cached <= FOLDER_INDEX_BUDGET || key === id) break;
+      folderIndexes.delete(key);
+      cached -= old.files.length;
+    }
+    return index;
+  };
+  const folderAttachment = (id: string, deviceId: string) => {
+    const attachment = store.availableAttachment(id, deviceId);
+    if (!attachment.folder) throw new HttpError(415, "This attachment isn't a folder");
+    return attachment;
+  };
+
+  app.get<{ Params: MessageParams; Querystring: { dir?: string } }>(routes.folderFiles(":id"), async (request) => {
+    const { device } = authenticate(request);
+    folderAttachment(request.params.id, device.id);
+    return indexOf(request.params.id).list(request.query.dir ?? "");
+  });
+
+  app.get<{ Params: MessageParams; Querystring: { path?: string; preview?: string } }>(routes.folderFile(":id"), async (request, reply) => {
+    const { device } = authenticate(request, true);
+    const { id } = request.params;
+    const attachment = folderAttachment(id, device.id);
+    const found = indexOf(id).find(request.query.path ?? "");
+    if (!found) throw new HttpError(404, "That file isn't in this folder");
+    const { file, start } = found;
+    const name = file.path.split("/").pop()!;
+    const mimeType = typeFromName(name);
+    // Same rules as attachments: only allow-listed photos, videos and audio show inline, sandboxed.
+    if (request.query.preview && mimeType && previewKind({ mimeType, size: file.size })) {
+      reply
+        .header("content-type", mimeType)
+        .header("content-disposition", contentDisposition(name).replace(/^attachment/, "inline"))
+        .header("content-security-policy", "default-src 'none'; sandbox")
+        .header("cache-control", "private, max-age=3600");
+    } else {
+      reply.header("content-type", "application/octet-stream").header("content-disposition", contentDisposition(name));
+    }
+    return sendSlice(request, reply, id, attachment, start, file.size);
+  });
+
+  /** The whole folder as a zip, built as it downloads. It can't resume part-way, so ranges aren't offered. */
+  const sendFolderZip = (reply: FastifyReply, id: string, attachment: Attachment) => {
+    const { size, stream } = zipFolder(indexOf(id).files, () => readBytes(id, attachment, 0, attachment.size - 1));
+    return reply.header("x-content-type-options", "nosniff").header("content-length", size).send(stream);
   };
 
   /**
@@ -459,6 +582,20 @@ export async function buildApp({
   return app;
 }
 
+/** How many files' worth of folder indexes the host keeps in memory. */
+const FOLDER_INDEX_BUDGET = 2_000_000;
+
+/**
+ * Unpacks a gzipped request body. The route's body limit then applies to the unpacked bytes, so a
+ * small compressed body can't expand without bound.
+ */
+async function gunzipBody(request: FastifyRequest, _reply: FastifyReply, payload: Readable) {
+  if (request.headers["content-encoding"] !== "gzip") return payload;
+  // The length on the wire is the compressed one; the unpacked body is measured against the limit instead.
+  delete request.headers["content-length"];
+  return payload.pipe(createGunzip());
+}
+
 /** Parses a single "bytes=" range. Multi-range requests are answered with the whole file. */
 export function parseRange(
   header: string | undefined,
@@ -499,4 +636,28 @@ export function contentDisposition(name: string): string {
   const safe = name.replace(/[\\/]/g, "_").replace(/[\u0000-\u001f\u007f]/g, "").trim() || "download";
   const ascii = safe.replace(/[^\x20-\x7e]/g, "_").replace(/["%]/g, "_");
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(safe)}`;
+}
+
+/** Types for files inside a folder, which carry only their names. Only ones LANDrop can preview. */
+const TYPES_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  heic: "image/heic",
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  aac: "audio/aac",
+};
+
+export function typeFromName(name: string): string | undefined {
+  return TYPES_BY_EXTENSION[name.split(".").pop()!.toLowerCase()];
 }

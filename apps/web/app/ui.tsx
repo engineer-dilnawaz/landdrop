@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MAX_DEVICE_NAME_LENGTH, isAvailable, type Message } from "@landrop/protocol";
 import type { Progress } from "./landrop";
@@ -319,6 +319,9 @@ const AVATAR_SIZES = {
   small: "size-8 text-[13px]",
 };
 
+/** Finds the profile photo for an avatar's seed (a device or private chat id); provided by the app. */
+export const AvatarPhotos = createContext<(seed: string) => string | undefined>(() => undefined);
+
 export function Avatar({
   name,
   seed,
@@ -329,6 +332,8 @@ export function Avatar({
   seed?: string;
   size?: keyof typeof AVATAR_SIZES;
 }) {
+  const photo = useContext(AvatarPhotos)(seed ?? "");
+  const [failed, setFailed] = useState<string>();
   const initials = name
     .split(/\s+/)
     // Skip separators like "·" and filler words, so "Mac · Chrome" reads "MC".
@@ -336,6 +341,17 @@ export function Avatar({
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase())
     .join("");
+  if (photo && failed !== photo)
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- served by the LAN host
+      <img
+        src={photo}
+        alt=""
+        draggable={false}
+        onError={() => setFailed(photo)}
+        className={`shrink-0 rounded-full bg-field object-cover ${AVATAR_SIZES[size]}`}
+      />
+    );
   return (
     <span
       className={`flex shrink-0 items-center justify-center rounded-full font-medium text-white ${AVATAR_SIZES[size]}`}

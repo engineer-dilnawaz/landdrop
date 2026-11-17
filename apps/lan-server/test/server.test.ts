@@ -1,18 +1,25 @@
 import { createHash, randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import {
   GROUP_CHAT_ID,
+  MAX_AVATAR_BYTES,
   MAX_ATTACHMENT_BYTES,
+  MAX_FOLDER_LIST_BYTES,
+  MAX_FOLDER_UPLOAD_BYTES,
   privateChatId,
   MAX_IMAGE_PREVIEW_BYTES,
   previewKind,
   PROTOCOL_VERSION,
   routes,
+  type FolderFile,
+  type FolderListing,
   type Group,
   type Message,
   type MessageInfo,
@@ -452,6 +459,259 @@ describe("read receipts", () => {
     await api(bob, "POST", routes.chatRead(chatId), { upTo: Date.now() + 60_000 });
     const later = await send(alice, chatId, "after");
     expect((await info(alice, later.id)).reads).toEqual([]);
+  });
+});
+
+describe("shared folders", () => {
+  const folder: Record<string, Buffer> = {
+    "beach.jpg": Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), randomBytes(5000)]),
+    "day 1/notes.txt": Buffer.from("Sunscreen ☀️ and towels"),
+    "day 1/empty.txt": Buffer.alloc(0),
+    "day 1/clips/wave.mp4": randomBytes(20_000),
+    "page.html": Buffer.from("<script>alert(1)</script>"),
+  };
+  // What a sender sends: the list of files, and their bytes back to back in that order.
+  const files = Object.entries(folder).map(([path, data]) => ({ path, size: data.length }));
+  const bytes = Buffer.concat(Object.values(folder));
+
+  const announce = (client: Client, attachment: object) => api(client, "POST", routes.messages, { chatId: GROUP_CHAT_ID, attachment });
+  /** Shares the folder in the group, uploading it unless it's live. */
+  async function share(client: Client, { live = false, uploaded = !live }: { live?: boolean; uploaded?: boolean } = {}): Promise<Message> {
+    const res = await announce(client, { name: "Trip", size: bytes.length, mimeType: "application/zip", live, folder: { files } });
+    expect(res.status).toBe(201);
+    const message = (await res.json()) as Message;
+    if (uploaded) {
+      await upload(client, message.id, bytes);
+      await api(client, "POST", routes.attachmentChecksum(message.id), { sha256: sha256(bytes) });
+    }
+    return message;
+  }
+  /** Plays the sender's page: answers the host's requests for the folder's bytes. Returns what was asked for. */
+  function serveFolder(sender: Client) {
+    const asked: number[] = [];
+    sender.socket.on("message", (raw) => {
+      const event = JSON.parse(raw.toString()) as ServerEvent;
+      if (event.type !== "stream:request") return;
+      asked.push(event.start);
+      void fetch(base + routes.streamData(event.requestId), {
+        method: "PUT",
+        headers: { authorization: `Bearer ${sender.token}`, "content-type": "application/octet-stream" },
+        body: new Uint8Array(bytes.subarray(event.start, event.end + 1)),
+      });
+    });
+    return asked;
+  }
+  const list = async (client: Client, id: string, dir = "") =>
+    (await (await api(client, "GET", routes.folderFiles(id) + `?dir=${encodeURIComponent(dir)}`)).json()) as FolderListing;
+  const fileUrl = (client: Client, id: string, path: string, preview = false) =>
+    base + routes.folderFile(id) + `?token=${client.token}&path=${encodeURIComponent(path)}${preview ? "&preview=1" : ""}`;
+  const fileOf = async (client: Client, id: string, path: string) => Buffer.from(await (await fetch(fileUrl(client, id, path))).arrayBuffer());
+
+  /** Unzips with macOS's own tools, checking every file's CRC; returns the folder as extracted. */
+  async function unzipped(zip: Buffer): Promise<Record<string, Buffer>> {
+    const dir = await mkdtemp(join(tmpdir(), "landrop-zip-"));
+    try {
+      await writeFile(join(dir, "Trip.zip"), zip);
+      execFileSync("unzip", ["-tq", join(dir, "Trip.zip")]);
+      // ditto is what Finder's Archive Utility uses.
+      execFileSync("ditto", ["-x", "-k", join(dir, "Trip.zip"), join(dir, "out")]);
+      const out: Record<string, Buffer> = {};
+      for (const path of Object.keys(folder)) out[path] = await readFile(join(dir, "out", path));
+      return out;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("lets others open a folder and get each file exactly as sent, or all of it as a zip any Mac can open", async () => {
+    const alice = await join_("Alice");
+    const bob = await join_("Bob");
+    const sent = await share(alice);
+    expect(sent.attachment).toMatchObject({ name: "Trip.zip", mimeType: "application/zip", size: bytes.length, folder: { files: 5 } });
+    // Opened a level at a time: each subfolder shows what it holds in total.
+    expect(await list(bob, sent.id)).toEqual({
+      folders: [{ name: "day 1", files: 3, size: folder["day 1/notes.txt"].length + folder["day 1/clips/wave.mp4"].length }],
+      files: [files[0], files[4]],
+    });
+    expect((await list(bob, sent.id, "day 1")).folders).toEqual([{ name: "clips", files: 1, size: 20_000 }]);
+    for (const [path, data] of Object.entries(folder)) expect((await fileOf(bob, sent.id, path)).equals(data)).toBe(true);
+    const zip = await download(bob, sent.id);
+    const body = Buffer.from(await zip.arrayBuffer());
+    expect(Number(zip.headers.get("content-length"))).toBe(body.length);
+    expect(await unzipped(body)).toEqual(folder);
+  });
+
+  it("shows photos and videos inside a folder inline and in ranges, but everything else only as a download", async () => {
+    const alice = await join_("Alice");
+    const sent = await share(alice);
+    const photo = await fetch(fileUrl(alice, sent.id, "beach.jpg", true));
+    expect(photo.headers.get("content-type")).toBe("image/jpeg");
+    expect(photo.headers.get("content-security-policy")).toContain("sandbox");
+    const clip = await fetch(fileUrl(alice, sent.id, "day 1/clips/wave.mp4", true), { headers: { range: "bytes=100-199" } });
+    expect(clip.status).toBe(206);
+    expect(Buffer.from(await clip.arrayBuffer()).equals(folder["day 1/clips/wave.mp4"].subarray(100, 200))).toBe(true);
+    const page = await fetch(fileUrl(alice, sent.id, "page.html", true));
+    expect(page.headers.get("content-type")).toBe("application/octet-stream");
+    expect(page.headers.get("content-disposition")).toMatch(/^attachment/);
+  });
+
+  it("lists a live folder without asking the sender, then streams each file and the zip from the sender's page", async () => {
+    const alice = await join_("Alice");
+    const bob = await join_("Bob");
+    const asked = serveFolder(alice);
+    const sent = await share(alice, { live: true });
+    // Opening the folder is instant: the host already knows what's in it.
+    expect((await list(bob, sent.id)).files.map((f) => f.path)).toEqual(["beach.jpg", "page.html"]);
+    expect(asked).toEqual([]);
+    expect((await fileOf(bob, sent.id, "day 1/notes.txt")).equals(folder["day 1/notes.txt"])).toBe(true);
+    expect(await unzipped(Buffer.from(await (await download(bob, sent.id)).arrayBuffer()))).toEqual(folder);
+  });
+
+  it("can be opened the moment it's sent: while it uploads, the sender's page serves it", async () => {
+    const alice = await join_("Alice");
+    const bob = await join_("Bob");
+    serveFolder(alice);
+    const sent = await share(alice, { uploaded: false });
+    expect(sent.attachment?.status).toBe("uploading");
+    expect((await fileOf(bob, sent.id, "beach.jpg")).equals(folder["beach.jpg"])).toBe(true);
+    // A plain file still can't be read half-uploaded; only folders have their sender to fall back on.
+    const plain = await attach(alice, randomBytes(100));
+    expect((await download(bob, plain.id)).status).toBe(409);
+  });
+
+  it("shares a folder of any number of files, listed gzipped, and zips it so any Mac can open it", async () => {
+    const alice = await join_("Alice");
+    // Over 65,535 files, the most a plain zip holds, so the zip needs its zip64 records.
+    const many = Array.from({ length: 70_000 }, (_, i) => ({ path: `node_modules/pkg-${i % 700}/file-${i}.js`, size: 1 }));
+    const body = gzipSync(JSON.stringify({ chatId: GROUP_CHAT_ID, attachment: { name: "Huge", size: many.length, live: true, folder: { files: many } } }));
+    const res = await fetch(base + routes.messages, {
+      method: "POST",
+      headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json", "content-encoding": "gzip" },
+      body: new Uint8Array(body),
+    });
+    expect(res.status).toBe(201);
+    const sent = (await res.json()) as Message;
+    expect(sent.attachment?.folder).toEqual({ files: 70_000 });
+    const top = await list(alice, sent.id, "node_modules");
+    expect(top.folders.length).toBe(700);
+    expect(top.folders[2]).toEqual({ name: "pkg-2", files: 100, size: 100 });
+    // The sender's page serves each file's single byte.
+    alice.socket.on("message", (raw) => {
+      const event = JSON.parse(raw.toString()) as ServerEvent;
+      if (event.type !== "stream:request") return;
+      void fetch(base + routes.streamData(event.requestId), {
+        method: "PUT",
+        headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/octet-stream" },
+        body: new Uint8Array(event.end - event.start + 1).fill(120),
+      });
+    });
+    const dir = await mkdtemp(join(tmpdir(), "landrop-zip-"));
+    try {
+      await writeFile(join(dir, "Huge.zip"), Buffer.from(await (await download(alice, sent.id)).arrayBuffer()));
+      execFileSync("unzip", ["-tq", join(dir, "Huge.zip")]);
+      expect(execFileSync("unzip", ["-p", join(dir, "Huge.zip"), "node_modules/pkg-5/file-69305.js"]).toString()).toBe("x");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("lets a page from another LAN address send a gzipped list (the browser asks first)", async () => {
+    const res = await fetch(base + routes.messages, {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://192.168.0.20:3001",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type,content-encoding",
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-headers")).toContain("content-encoding");
+  });
+
+  it("refuses a list that would unpack past the limit, however small it is compressed", async () => {
+    const alice = await join_("Alice");
+    const bomb = gzipSync(Buffer.alloc(MAX_FOLDER_LIST_BYTES + 1, " "));
+    const res = await fetch(base + routes.messages, {
+      method: "POST",
+      headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json", "content-encoding": "gzip" },
+      body: new Uint8Array(bomb),
+    });
+    expect(res.status).toBe(413);
+  });
+
+  it("uploads folders up to 2 GB, where single files must go live past 500 MB", async () => {
+    const alice = await join_("Alice");
+    const big = MAX_ATTACHMENT_BYTES + 1;
+    const one = (size: number) => ({ files: [{ path: "film.mp4", size }] });
+    expect((await announce(alice, { name: "Trip", size: big, folder: one(big) })).status).toBe(201);
+    expect((await announce(alice, { name: "film.mp4", size: big, mimeType: "video/mp4" })).status).toBe(400);
+    const tooBig = MAX_FOLDER_UPLOAD_BYTES + 1;
+    expect((await announce(alice, { name: "Trip", size: tooBig, folder: one(tooBig) })).status).toBe(400);
+    expect((await announce(alice, { name: "Trip", size: tooBig, live: true, folder: one(tooBig) })).status).toBe(201);
+  });
+
+  it("refuses a folder whose list could escape it when unzipped, or doesn't match its bytes", async () => {
+    const alice = await join_("Alice");
+    const send = (list: FolderFile[], size = list.reduce((sum, f) => sum + f.size, 0)) =>
+      announce(alice, { name: "Trip", size, folder: { files: list } }).then((r) => r.status);
+    expect(await send([{ path: "../../.ssh/authorized_keys", size: 1 }])).toBe(400);
+    expect(await send([{ path: "/etc/passwd", size: 1 }])).toBe(400);
+    expect(await send([{ path: "a\\..\\b", size: 1 }])).toBe(400);
+    expect(await send([{ path: "a.txt", size: 1 }, { path: "a.txt", size: 1 }])).toBe(400);
+    expect(await send([{ path: "a.txt", size: 1 }], 2)).toBe(400);
+  });
+
+  it("won't list a file that isn't a folder, or serve paths that aren't in the folder", async () => {
+    const alice = await join_("Alice");
+    const data = randomBytes(100);
+    const plain = await attach(alice, data);
+    await upload(alice, plain.id, data);
+    await api(alice, "POST", routes.attachmentChecksum(plain.id), { sha256: sha256(data) });
+    expect((await api(alice, "GET", routes.folderFiles(plain.id))).status).toBe(415);
+    const sent = await share(alice);
+    expect((await fetch(fileUrl(alice, sent.id, "../landrop.db"))).status).toBe(404);
+  });
+});
+
+describe("profile photos", () => {
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), randomBytes(200)]);
+  const putPhoto = (client: Client, id: string, body: Buffer, type = "image/jpeg") =>
+    fetch(base + routes.deviceAvatar(id), {
+      method: "PUT",
+      headers: { authorization: `Bearer ${client.token}`, "content-type": type },
+      body: new Uint8Array(body),
+    });
+
+  it("shows everyone a device's new photo, and the photo is exactly what was uploaded", async () => {
+    const a = newIdentity();
+    const alice = await join_("Alice", a);
+    const bob = await join_("Bob");
+    expect((await putPhoto(alice, a.deviceId, jpeg)).status).toBe(200);
+    const { device } = await bob.waitFor("device:updated");
+    expect(device).toMatchObject({ id: a.deviceId, avatarAt: expect.any(Number) });
+    const photo = await fetch(base + routes.deviceAvatar(a.deviceId) + `?token=${bob.token}`);
+    expect(photo.headers.get("content-type")).toBe("image/jpeg");
+    expect(Buffer.from(await photo.arrayBuffer()).equals(jpeg)).toBe(true);
+  });
+
+  it("only lets a device change its own photo, and only to a real image", async () => {
+    const a = newIdentity();
+    const alice = await join_("Alice", a);
+    const bob = await join_("Bob");
+    expect((await putPhoto(bob, a.deviceId, jpeg)).status).toBe(403);
+    // Labelled as an image, but it's a web page: refused rather than served back as one.
+    expect((await putPhoto(alice, a.deviceId, Buffer.from("<script>alert(1)</script>"))).status).toBe(415);
+    expect((await putPhoto(alice, a.deviceId, Buffer.concat([jpeg, Buffer.alloc(MAX_AVATAR_BYTES)]))).status).toBe(413);
+  });
+
+  it("removes a photo for everyone", async () => {
+    const a = newIdentity();
+    const alice = await join_("Alice", a);
+    await putPhoto(alice, a.deviceId, jpeg);
+    expect((await api(alice, "DELETE", routes.deviceAvatar(a.deviceId))).status).toBe(200);
+    expect((await fetch(base + routes.deviceAvatar(a.deviceId) + `?token=${alice.token}`)).status).toBe(404);
+    const later = await join_("Bob");
+    expect(later.welcome.directory.find((d) => d.id === a.deviceId)?.avatarAt).toBeUndefined();
   });
 });
 

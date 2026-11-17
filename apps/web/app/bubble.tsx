@@ -11,6 +11,7 @@ import {
   ChevronIcon,
   ClockIcon,
   CopyIcon,
+  FolderIcon,
   DoubleTickIcon,
   PlayIcon,
   ReplyIcon,
@@ -62,6 +63,7 @@ export function Bubble({
   onLongPress,
   onQuoteTap,
   onOpenMedia,
+  onOpenFolder,
   avatar,
   receipt,
 }: {
@@ -76,6 +78,7 @@ export function Bubble({
   downloadUrl: string;
   previewUrl: string;
   onOpenMedia: () => void;
+  onOpenFolder: () => void;
   onReply: () => void;
   /** Press and hold, right-click, or the ⌄ button: the message's actions. */
   onLongPress: () => void;
@@ -289,31 +292,35 @@ export function Bubble({
         {a && !preview && (
           <div className={`flex min-w-60 flex-col gap-1 md:min-w-72 ${message.text ? "mb-1" : ""}`}>
             <div className="-mx-1 flex items-center gap-2.5 rounded-md bg-black/5 p-2.5 dark:bg-black/20">
-              <span className="flex h-10 w-[34px] shrink-0 items-end justify-center rounded-[4px] bg-[#e5484d] pb-1 text-[9px] font-bold uppercase text-white">
-                {extension(a.name)}
-              </span>
+              {a.folder ? (
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-[6px] bg-[#ffbc38] text-white">
+                  <FolderIcon size={24} />
+                </span>
+              ) : (
+                <span className="flex h-10 w-[34px] shrink-0 items-end justify-center rounded-[4px] bg-[#e5484d] pb-1 text-[9px] font-bold uppercase text-white">
+                  {extension(a.name)}
+                </span>
+              )}
               <div className="min-w-0 flex-1">
-                <p className="break-all text-[14.5px] leading-5">{a.name}</p>
+                <p className="break-all text-[14.5px] leading-5">{a.folder ? a.name.replace(/\.zip$/, "") : a.name}</p>
                 <p className="text-[12px] opacity-65">
+                  {a.folder && `${a.folder.files.toLocaleString()} ${a.folder.files === 1 ? "file" : "files"} · `}
                   {formatBytes(a.size)}
                   {a.status === "ready" && " · ✓ verified"}
                   {a.status === "failed" && " · didn't finish sending"}
                   {a.status === "live" && (own ? " · live from this device, keep LANDrop open" : " · live while the sender is online")}
                 </p>
               </div>
-              {isAvailable(a) && (
-                <a
-                  href={downloadUrl}
-                  download={a.name}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label={`Save ${a.name}`}
-                  title={a.sha256 ? `Save · SHA-256 ${a.sha256}` : "Save · streamed live from the sender"}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-full border-[1.5px] border-current opacity-60 hover:opacity-100"
-                >
-                  <SaveIcon size={18} />
-                </a>
-              )}
             </div>
+            {/* Folders open inside LANDrop, like a folder on the computer; the zip is the secondary way. */}
+            {a.folder && isAvailable(a) && (
+              <button
+                onClick={() => !gestureConsumedClick.current && onOpenFolder()}
+                className="-mx-1 rounded-md py-2 text-[14px] font-medium text-[#027eb5] hover:bg-black/5 dark:text-[#53bdeb] dark:hover:bg-black/20"
+              >
+                Open folder
+              </button>
+            )}
             {a.status === "uploading" && <UploadProgress size={a.size} progress={progress} />}
             {!message.text && <div className="flex justify-end pt-0.5">{meta}</div>}
           </div>

@@ -4,12 +4,13 @@ import { useRef, useState } from "react";
 import { isAvailable, previewKind, type Attachment, type Message } from "@landrop/protocol";
 import type { Progress } from "./landrop";
 import { SparkleField } from "./sparkle-field";
-import { VoicePlayer } from "./voice";
+import { VoicePlayer, formatClock } from "./voice";
 import {
   AlertIcon,
   ChevronIcon,
   ClockIcon,
   CopyIcon,
+  PlayIcon,
   ReplyIcon,
   SaveIcon,
   TickIcon,
@@ -26,6 +27,14 @@ export const TIME_GAP_MS = 15 * 60 * 1000;
 export const LONG_PRESS_MS = 450;
 const SWIPE_TRIGGER_PX = 56;
 const SWIPE_MAX_PX = 72;
+/** Small labels over a photo or video: "GIF", a video's length. */
+const BADGE = "pointer-events-none absolute rounded-full bg-black/50 px-1.5 py-px text-[11px] font-medium text-white";
+
+const VideoIcon = () => (
+  <svg width={12} height={12} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <path d="M3 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm14 3.2 4-2.7v9l-4-2.7Z" />
+  </svg>
+);
 
 interface Gesture {
   x: number;
@@ -49,7 +58,7 @@ export function Bubble({
   onReply,
   onLongPress,
   onQuoteTap,
-  onOpenImage,
+  onOpenMedia,
 }: {
   message: Message;
   nameOf: (id: string | undefined, fallback: string) => string;
@@ -61,7 +70,7 @@ export function Bubble({
   progress?: Progress;
   downloadUrl: string;
   previewUrl: string;
-  onOpenImage: () => void;
+  onOpenMedia: () => void;
   onReply: () => void;
   /** Press and hold, right-click, or the ⌄ button: the message's actions. */
   onLongPress: () => void;
@@ -74,6 +83,7 @@ export function Bubble({
   /** Set when the last press was a long press or swipe, so its trailing click doesn't also open the photo. */
   const gestureConsumedClick = useRef(false);
   const [previewFailed, setPreviewFailed] = useState(false);
+  const [videoLength, setVideoLength] = useState<number>();
   const [expanded, setExpanded] = useState(false);
   const shortText = message.text && !expanded ? truncateLongText(message.text) : undefined;
   // Previews only once the host has verified the bytes (or live from the sender); formats this browser can't show fall back to the file card.
@@ -209,9 +219,11 @@ export function Bubble({
               loading="lazy"
               draggable={false}
               onError={() => setPreviewFailed(true)}
-              onClick={() => !gestureConsumedClick.current && onOpenImage()}
+              onClick={() => !gestureConsumedClick.current && onOpenMedia()}
               className="block max-h-80 min-h-24 min-w-40 max-w-full cursor-zoom-in rounded-[5px] bg-black/10 object-cover md:max-w-[330px]"
             />
+            {/* GIFs already loop in the bubble; the badge says why it's moving. */}
+            {a.mimeType === "image/gif" && <span className={`${BADGE} left-2 top-2`}>GIF</span>}
             {!message.text && (
               <span className="pointer-events-none absolute inset-x-0 bottom-0 flex h-9 items-end justify-end rounded-b-[5px] bg-linear-to-b from-transparent to-black/45 px-2 pb-1 text-white">
                 <Meta at={message.createdAt} own={own} status={a.status} onMedia />
@@ -221,16 +233,38 @@ export function Bubble({
         )}
         {a && preview === "video" && (
           <>
-            <video
-              // "#t=0.1" makes iOS Safari load and show the first frame instead of a blank box.
-              src={`${previewUrl}#t=0.1`}
-              controls
-              playsInline
-              preload="metadata"
-              onError={() => setPreviewFailed(true)}
-              className="block max-h-80 max-w-full rounded-[5px] bg-black md:max-w-[330px]"
-            />
-            {!message.text && <div className="flex justify-end px-1.5 pt-1">{meta}</div>}
+            <button
+              onClick={() => !gestureConsumedClick.current && onOpenMedia()}
+              aria-label={`Play ${a.name}`}
+              className="relative block min-h-24 min-w-40 max-w-full overflow-hidden rounded-[5px] bg-black md:max-w-[330px]"
+            >
+              {/* A still frame; it plays full screen. "#t=0.1" makes iOS Safari show that frame instead of a blank box. */}
+              <video
+                src={`${previewUrl}#t=0.1`}
+                muted
+                playsInline
+                preload="metadata"
+                onLoadedMetadata={(e) => Number.isFinite(e.currentTarget.duration) && setVideoLength(e.currentTarget.duration)}
+                onError={() => setPreviewFailed(true)}
+                className="pointer-events-none block max-h-80 max-w-full"
+              />
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="flex size-14 items-center justify-center rounded-full bg-black/45 pl-1 text-white backdrop-blur-sm">
+                  <PlayIcon size={30} />
+                </span>
+              </span>
+              {videoLength !== undefined && (
+                <span className={`${BADGE} bottom-1.5 left-2 flex items-center gap-1`}>
+                  <VideoIcon />
+                  {formatClock(videoLength)}
+                </span>
+              )}
+              {!message.text && (
+                <span className="pointer-events-none absolute bottom-0 right-0 flex h-9 items-end px-2 pb-1 text-white">
+                  <Meta at={message.createdAt} own={own} status={a.status} onMedia />
+                </span>
+              )}
+            </button>
           </>
         )}
         {a && preview === "audio" && (

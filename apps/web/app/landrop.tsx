@@ -8,6 +8,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   PROTOCOL_VERSION,
   chatMembers,
+  isAvailable,
   isGroupId,
   previewKind,
   privateChatId,
@@ -26,13 +27,13 @@ import { guessDeviceName } from "./device-name";
 import { DevicePicker, type PickableDevice } from "./device-picker";
 import { GroupInfoSheet, GroupMembersSheet, type Contact } from "./group-sheets";
 import { JoinDialog } from "./join-dialog";
+import { MediaViewer } from "./media-viewer";
 import { BottomTabs, Rail, type Panel } from "./nav";
 import { Settings } from "./settings";
 import { Sidebar } from "./sidebar";
 import {
   ChatSheet,
   CloseIcon,
-  ImageViewer,
   LockIcon,
   Logo,
   MessageSheet,
@@ -265,7 +266,7 @@ export default function LanDrop() {
   const [networkDevices, setNetworkDevices] = useState<NetworkDevice[]>();
   /** dragenter/dragleave fire for every child element; count them so the overlay doesn't flicker. */
   const dragDepth = useRef(0);
-  const [viewing, setViewing] = useState<Message>();
+  const [viewing, setViewing] = useState<string>();
   const socketRef = useRef<WebSocket | null>(null);
   const tokenRef = useRef<string | undefined>(undefined);
   const identityRef = useRef<Identity | null>(null);
@@ -810,7 +811,7 @@ export default function LanDrop() {
                 },
               )
             }
-            onOpenImage={setViewing}
+            onOpenMedia={(m) => setViewing(m.id)}
             onReply={setReplyTo}
             onLongPress={setSelected}
           />
@@ -848,12 +849,12 @@ export default function LanDrop() {
         </div>
       )}
 
-      {viewing?.attachment && (
-        <ImageViewer
-          name={viewing.attachment.name}
-          caption={`${viewing.senderId === selfId ? "You" : nameOf(viewing.senderId, viewing.senderName)} · ${formatDay(viewing.createdAt)} at ${formatTime(viewing.createdAt)}`}
-          url={urls(viewing.id).preview}
-          downloadUrl={urls(viewing.id).download}
+      {viewing && (
+        <MediaViewer
+          items={chatMessages.filter((m) => m.attachment && isAvailable(m.attachment) && ["image", "video"].includes(previewKind(m.attachment) ?? ""))}
+          startId={viewing}
+          urls={urls}
+          describe={(m) => `${m.senderId === selfId ? "You" : nameOf(m.senderId, m.senderName)} · ${formatDay(m.createdAt)} at ${formatTime(m.createdAt)}`}
           onClose={() => setViewing(undefined)}
         />
       )}

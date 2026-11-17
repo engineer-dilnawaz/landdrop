@@ -59,7 +59,7 @@ export function ChatView({
   onGroupInfo,
   onLeaveGroup,
   onClearChat,
-  onOpenImage,
+  onOpenMedia,
   onReply,
   onLongPress,
 }: {
@@ -91,7 +91,7 @@ export function ChatView({
   onLeaveGroup: () => void;
   /** Clear the group or delete a private chat (asks first). */
   onClearChat: () => void;
-  onOpenImage: (message: Message) => void;
+  onOpenMedia: (message: Message) => void;
   onReply: (message: Message) => void;
   onLongPress: (message: Message) => void;
 }) {
@@ -215,7 +215,7 @@ export function ChatView({
                     progress={progress[m.id]}
                     downloadUrl={download}
                     previewUrl={preview}
-                    onOpenImage={() => onOpenImage(m)}
+                    onOpenMedia={() => onOpenMedia(m)}
                     onReply={() => onReply(m)}
                     onLongPress={() => {
                       // iOS may already have started selecting under the finger; clear it before the menu opens.

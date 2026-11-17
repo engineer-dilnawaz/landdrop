@@ -5,52 +5,6 @@ import { createPortal } from "react-dom";
 import { MAX_DEVICE_NAME_LENGTH, isAvailable, type Message } from "@landrop/protocol";
 import type { Progress } from "./landrop";
 
-export function ImageViewer({
-  name,
-  url,
-  downloadUrl,
-  caption,
-  onClose,
-}: {
-  name: string;
-  url: string;
-  downloadUrl: string;
-  /** Who sent it and when, shown in the viewer's header like WhatsApp. */
-  caption?: string;
-  onClose: () => void;
-}) {
-  useEscape(onClose);
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={name}
-      className="fixed inset-0 z-50 flex flex-col bg-[#0b141a]/95 text-[#e9edef]"
-      onClick={onClose}
-    >
-      <div
-        className="flex items-center gap-3 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[16px]">{caption ?? name}</p>
-          {caption && <p className="truncate text-[13px] text-[#8696a0]">{name}</p>}
-        </div>
-        <a href={downloadUrl} download={name} className={VIEWER_BUTTON} aria-label={`Save ${name}`} title="Save">
-          <SaveIcon size={22} />
-        </a>
-        <button onClick={onClose} className={VIEWER_BUTTON} autoFocus aria-label="Done" title="Close">
-          <CloseIcon />
-        </button>
-      </div>
-      {/* eslint-disable-next-line @next/next/no-img-element -- served by the LAN host, not optimisable by Next */}
-      <img src={url} alt={name} className="min-h-0 flex-1 object-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))]" />
-    </div>
-  );
-}
-
-const VIEWER_BUTTON = "flex size-10 shrink-0 items-center justify-center rounded-full text-[#aebac1] hover:bg-white/10";
-
 /** Closes a dialog with Escape. */
 export function useEscape(onClose: () => void) {
   useEffect(() => {

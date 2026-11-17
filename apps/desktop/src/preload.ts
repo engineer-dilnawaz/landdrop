@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-// The report form's only way to reach the app: hand over what was typed and hear whether it saved.
+// The only ways LANDrop's own windows reach the app. The main process checks which window is asking.
 contextBridge.exposeInMainWorld("landrop", {
   submitReport: (report: unknown): Promise<boolean> => ipcRenderer.invoke("report:submit", report),
+  saveQr: (): Promise<void> => ipcRenderer.invoke("qr:save"),
+  shareQr: (): Promise<void> => ipcRenderer.invoke("qr:share"),
 });

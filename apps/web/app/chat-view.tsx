@@ -16,6 +16,7 @@ import {
   ImageIcon,
   LockIcon,
   PlusIcon,
+  QrIcon,
   SHEET_ITEM,
   SendIcon,
   Sheet,
@@ -52,6 +53,7 @@ export function ChatView({
   urls,
   composer,
   onBack,
+  onInvite,
   onClearChat,
   onOpenImage,
   onReply,
@@ -75,6 +77,8 @@ export function ChatView({
   };
   /** Leaves the chat: back to the list on phones, the welcome screen on computers. */
   onBack: () => void;
+  /** Shows the join QR code, with Save and Share, so more devices can join. */
+  onInvite: () => void;
   /** Clear the group or delete a private chat (asks first). */
   onClearChat: () => void;
   onOpenImage: (message: Message) => void;
@@ -140,9 +144,15 @@ export function ChatView({
           <h2 className="truncate text-[16px] font-medium leading-tight">{chat.title}</h2>
           <p className="truncate text-[13px] text-muted">{chat.subtitle}</p>
         </div>
+        {chat.isGroup && (
+          <button onClick={onInvite} className={ICON_BUTTON} aria-label="Invite devices: show QR code" title="Invite devices">
+            <QrIcon />
+          </button>
+        )}
         <DropdownMenu
           label="Chat menu"
           items={[
+            ...(chat.isGroup ? [{ label: "Invite devices", onSelect: onInvite }] : []),
             { label: "Close chat", onSelect: onBack },
             { label: chat.isGroup ? "Clear chat" : "Delete chat", onSelect: onClearChat, danger: true },
           ]}

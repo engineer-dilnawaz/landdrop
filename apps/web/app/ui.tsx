@@ -394,6 +394,12 @@ export const TrashIcon = ({ size = 20 }: IconProps) => (
   </svg>
 );
 
+export const ShareIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="M12 15V3.5m0 0L7.5 8M12 3.5 16.5 8M8 11H6.5A1.5 1.5 0 0 0 5 12.5v6A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-6a1.5 1.5 0 0 0-1.5-1.5H16" />
+  </svg>
+);
+
 export const CloseIcon = ({ size = 24 }: IconProps) => (
   <svg {...sized(size)}>
     <path d="m6 6 12 12M18 6 6 18" />

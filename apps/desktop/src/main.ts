@@ -1,10 +1,11 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir, release } from "node:os";
+import { writeFile } from "node:fs/promises";
+import { homedir, release, tmpdir } from "node:os";
 import { join } from "node:path";
 import { joinUrls } from "@landrop/lan-server/app";
 import { startHost } from "@landrop/lan-server/host";
 import { DEFAULT_LAN_PORT } from "@landrop/protocol";
-import { BrowserWindow, Menu, Tray, app, clipboard, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell, type MenuItemConstructorOptions } from "electron";
+import { BrowserWindow, Menu, Tray, app, clipboard, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell, ShareMenu, type MenuItemConstructorOptions } from "electron";
 import QRCode from "qrcode";
 import { MAX_SCREENSHOTS, parseReport, saveReport } from "./reports";
 
@@ -94,6 +95,22 @@ async function start() {
       osVersion: `macOS ${process.getSystemVersion()} (Darwin ${release()})`,
     });
     return true;
+  });
+  ipcMain.handle("qr:save", async (event) => {
+    if (!qrWindow || event.sender !== qrWindow.webContents || !joinUrls(PORT)[0]) return;
+    const { filePath } = await dialog.showSaveDialog(qrWindow, {
+      defaultPath: join(app.getPath("downloads"), "Join LANDrop.png"),
+      filters: [{ name: "PNG image", extensions: ["png"] }],
+    });
+    if (filePath) await writeFile(filePath, await qrImage(joinUrls(PORT)[0]));
+  });
+  ipcMain.handle("qr:share", async (event) => {
+    const url = joinUrls(PORT)[0];
+    if (!qrWindow || event.sender !== qrWindow.webContents || !url) return;
+    // Shared as a file, so apps like Messages and AirDrop receive the image itself.
+    const file = join(tmpdir(), "Join LANDrop.png");
+    await writeFile(file, await qrImage(url));
+    new ShareMenu({ filePaths: [file], texts: [`Join LANDrop on our Wi-Fi: ${url}`] }).popup({ window: qrWindow });
   });
 
   tray = new Tray(ICON);
@@ -302,7 +319,14 @@ async function showQr() {
   }
   const urls = joinUrls(PORT);
   const qr = urls[0] && (await QRCode.toDataURL(urls[0], { margin: 1, width: 480, errorCorrectionLevel: "M" }));
-  qrWindow = new BrowserWindow({ width: 340, height: 540, resizable: false, title: "Join LANDrop", show: false });
+  qrWindow = new BrowserWindow({
+    width: 340,
+    height: 590,
+    resizable: false,
+    title: "Join LANDrop",
+    show: false,
+    webPreferences: { preload: join(__dirname, "preload.cjs") },
+  });
   qrWindow.on("closed", () => (qrWindow = undefined));
   trackWindow(qrWindow);
   qrWindow.once("ready-to-show", () => {
@@ -328,6 +352,11 @@ function openChat() {
   });
   void chatWindow.loadURL(`http://localhost:${PORT}/`);
   app.focus({ steal: true });
+}
+
+/** The join QR code as a PNG, the same code the QR window shows. */
+function qrImage(url: string): Promise<Buffer> {
+  return QRCode.toBuffer(url, { margin: 2, width: 960, errorCorrectionLevel: "M" });
 }
 
 async function showReportForm() {
@@ -489,6 +518,9 @@ function qrPage(urls: string[], qr: string | undefined): string {
   .qr img { width: 100%; height: 100%; image-rendering: pixelated; }
   .url { font: 13px ui-monospace, monospace; color: CanvasText; user-select: text; }
   .help { margin-top: 16px; font-size: 12px; }
+  .actions { display: flex; gap: 8px; justify-content: center; margin: 14px 0 4px; }
+  .actions button { font: inherit; padding: 6px 14px; border-radius: 7px; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); background: Canvas; color: CanvasText; }
+  .actions button:active { opacity: .7; }
 </style></head><body>
   <h1>Join LANDrop</h1>
   ${
@@ -496,6 +528,10 @@ function qrPage(urls: string[], qr: string | undefined): string {
       ? `<p>Scan with a phone camera. It must be on the same Wi-Fi as this Mac.</p>
   <div class="qr"><img src="${qr}" alt="QR code for ${urls[0]}"></div>
   ${urls.map((u) => `<p class="url">${u.replace("http://", "")}</p>`).join("")}
+  <div class="actions">
+    <button onclick="window.landrop.saveQr()">Save Image…</button>
+    <button onclick="window.landrop.shareQr()">Share…</button>
+  </div>
   <p class="help">Can't open it on Android? In Chrome, turn off Settings → Privacy and security → Always use secure connections.</p>`
       : `<p>This Mac isn't connected to a network. Join a Wi-Fi network, then open this again.</p>`
   }

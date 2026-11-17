@@ -724,6 +724,7 @@ export default function LanDrop() {
               send: () => void send(),
             }}
             onBack={() => openChat(undefined)}
+            onInvite={() => setInviting(true)}
             onClearChat={() =>
               setHeldChat(
                 chats.find((c) => c.id === activeChat.id) ?? {

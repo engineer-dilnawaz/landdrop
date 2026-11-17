@@ -2,7 +2,7 @@
 
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
-import { FILLED_BUTTON, Sheet, copyText } from "./ui";
+import { FILLED_BUTTON, SaveIcon, ShareIcon, Sheet, copyText } from "./ui";
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -100,10 +100,66 @@ export function JoinDialog({
             </div>
           )}
         </div>
+        {url && qr && <ShareActions url={url} qr={qr} />}
         <button onClick={onClose} className={`${FILLED_BUTTON} mt-6 w-full`}>
           Done
         </button>
       </div>
     </Sheet>
+  );
+}
+
+const ACTION = "flex flex-1 flex-col items-center gap-1.5 rounded-xl bg-field px-2 py-3 text-[13px] hover:brightness-95";
+
+/**
+ * Save the code as an image, or send the link to another app. The system share sheet only exists
+ * on secure pages (LANDrop opened as localhost); phones reach LANDrop over plain http, so they get
+ * links that hand the address to WhatsApp, Messages or email instead.
+ */
+function ShareActions({ url, qr }: { url: string; qr: string }) {
+  const text = `Join LANDrop on our Wi-Fi: ${url}`;
+  const [file, setFile] = useState<File>();
+  useEffect(() => {
+    let cancelled = false;
+    fetch(qr)
+      .then((r) => r.blob())
+      .then((blob) => new File([blob], "Join LANDrop.png", { type: "image/png" }))
+      .then((f) => !cancelled && navigator.canShare?.({ files: [f] }) && setFile(f));
+    return () => {
+      cancelled = true;
+    };
+  }, [qr]);
+
+  return (
+    <div className="mt-5 flex gap-2">
+      <a href={qr} download="Join LANDrop.png" className={ACTION}>
+        <SaveIcon size={22} />
+        Save image
+      </a>
+      {file ? (
+        <button
+          onClick={() => navigator.share({ files: [file], title: "Join LANDrop", text }).catch(() => {})}
+          className={ACTION}
+        >
+          <ShareIcon size={22} />
+          Share
+        </button>
+      ) : (
+        <>
+          <a href={`https://wa.me/?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener" className={ACTION}>
+            <ShareIcon size={22} />
+            WhatsApp
+          </a>
+          <a href={`sms:?&body=${encodeURIComponent(text)}`} className={ACTION}>
+            <ShareIcon size={22} />
+            Messages
+          </a>
+          <a href={`mailto:?subject=${encodeURIComponent("Join LANDrop")}&body=${encodeURIComponent(text)}`} className={ACTION}>
+            <ShareIcon size={22} />
+            Email
+          </a>
+        </>
+      )}
+    </div>
   );
 }

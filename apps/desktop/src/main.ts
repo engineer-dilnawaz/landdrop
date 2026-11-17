@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { buildApp, joinUrls } from "@landrop/lan-server/app";
+import { joinUrls } from "@landrop/lan-server/app";
+import { startHost } from "@landrop/lan-server/host";
 import { DEFAULT_LAN_PORT } from "@landrop/protocol";
 import { BrowserWindow, Menu, Tray, app, dialog, powerMonitor, powerSaveBlocker, shell } from "electron";
 import QRCode from "qrcode";
@@ -13,7 +14,7 @@ import QRCode from "qrcode";
  */
 
 const PORT = DEFAULT_LAN_PORT;
-// The same place `npm start` uses, so history is shared whichever way LANDrop runs.
+// The same place `npm start` uses, so history is shared whichever way LANDrop runs. Each network gets its own folder in it.
 const DATA_DIR = join(homedir(), ".landrop");
 const WEB_DIR = app.isPackaged ? join(process.resourcesPath, "web") : join(__dirname, "../../web/out");
 const ICON = join(__dirname, "../assets/trayTemplate.png");
@@ -50,9 +51,13 @@ async function start() {
     // First run: defaults.
   }
 
-  const server = await buildApp({ dataDir: DATA_DIR, webDir: existsSync(join(WEB_DIR, "index.html")) ? WEB_DIR : undefined });
+  let server: Awaited<ReturnType<typeof startHost>>;
   try {
-    await server.listen({ host: "0.0.0.0", port: PORT });
+    server = await startHost({
+      dataDir: DATA_DIR,
+      port: PORT,
+      webDir: existsSync(join(WEB_DIR, "index.html")) ? WEB_DIR : undefined,
+    });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") return fail(err);
     dialog.showErrorBox(

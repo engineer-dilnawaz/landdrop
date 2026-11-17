@@ -105,3 +105,44 @@ async function nameOf(address: string): Promise<string | undefined> {
   );
   return Promise.race([lookup, timeout]);
 }
+
+/**
+ * Which network this machine is on, named by its router's hardware address: the same Wi-Fi gives
+ * the same id however addresses are handed out, and reading it needs no location permission (which
+ * macOS requires for Wi-Fi names). Falls back to the router's address when its hardware address
+ * can't be read; undefined when there's no network at all.
+ */
+export async function currentNetworkId(): Promise<string | undefined> {
+  const gateway = parseGateway(await readRoutes());
+  if (!gateway) return undefined;
+  let mac = await hardwareAddressOf(gateway);
+  if (!mac) {
+    await knock([gateway]);
+    mac = await hardwareAddressOf(gateway);
+  }
+  return (mac ?? gateway).replace(/[:.]/g, "-");
+}
+
+async function readRoutes(): Promise<string> {
+  if (process.platform === "linux") return readFile("/proc/net/route", "utf8").catch(() => "");
+  const [command, args] = process.platform === "win32" ? ["route", ["print", "-4", "0.0.0.0"]] : ["route", ["-n", "get", "default"]];
+  return new Promise((resolve) => execFile(command, args, { timeout: 5000 }, (_err, stdout) => resolve(stdout ?? "")));
+}
+
+/**
+ * The default gateway (router) in `route -n get default` (macOS), `route print -4 0.0.0.0` (Windows)
+ * or /proc/net/route (Linux, where addresses are little-endian hex).
+ */
+export function parseGateway(routes: string): string | undefined {
+  const ip = String.raw`(\d{1,3}(?:\.\d{1,3}){3})`;
+  const mac = routes.match(new RegExp(String.raw`gateway:\s*${ip}`));
+  if (mac) return mac[1];
+  const windows = routes.match(new RegExp(String.raw`^\s*0\.0\.0\.0\s+0\.0\.0\.0\s+${ip}`, "m"));
+  if (windows) return windows[1];
+  const linux = routes.match(/^\S+\t00000000\t([0-9A-F]{8})\t/im);
+  if (linux && linux[1] !== "00000000") {
+    const n = parseInt(linux[1], 16);
+    return [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, n >>> 24].join(".");
+  }
+  return undefined;
+}

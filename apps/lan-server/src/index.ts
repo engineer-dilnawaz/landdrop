@@ -4,17 +4,23 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_LAN_PORT } from "@landrop/protocol";
 import QRCode from "qrcode";
-import { buildApp, joinUrls } from "./app.js";
+import { joinUrls } from "./app.js";
+import { startHost } from "./host.js";
 
 const port = Number(process.env.LANDROP_PORT ?? DEFAULT_LAN_PORT);
 
-// Chat history and attachments are kept here until the host clears the chat.
+// Chat history and attachments are kept here, one folder per network, until the host clears the chat.
 const dataDir = process.env.LANDROP_DATA_DIR ?? join(homedir(), ".landrop");
 // The built web app (`npm run build`); without it the server runs API-only, for `next dev`.
 const builtWeb = process.env.LANDROP_WEB_DIR ?? fileURLToPath(new URL("../../web/out", import.meta.url));
 const webDir = existsSync(join(builtWeb, "index.html")) ? builtWeb : undefined;
-const app = await buildApp({ dataDir, logger: true, webDir });
-await app.listen({ host: "0.0.0.0", port });
+const host = await startHost({
+  dataDir,
+  port,
+  logger: true,
+  webDir,
+  onNetworkChange: (network) => console.log(`\nThis computer moved to another network (${network}); showing that network's history.\n`),
+});
 
 const urls = joinUrls(port);
 if (!webDir) {
@@ -28,7 +34,7 @@ if (!webDir) {
 }
 
 const shutdown = async () => {
-  await app.close();
+  await host.close();
   process.exit(0);
 };
 process.on("SIGINT", shutdown);

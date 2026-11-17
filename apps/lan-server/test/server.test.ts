@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +18,8 @@ import {
   type ServerEvent,
 } from "@landrop/protocol";
 import { buildApp, contentDisposition, parseRange } from "../src/app.js";
-import { hostsOf, parseNeighbours } from "../src/network.js";
+import { startHost } from "../src/host.js";
+import { hostsOf, parseGateway, parseNeighbours } from "../src/network.js";
 
 let base: string;
 let dataDir: string;
@@ -748,5 +750,66 @@ describe("network boundary", () => {
     expect(header).not.toMatch(/[\r\n]/);
     expect(header).toContain('filename=".._.._etc_passwdSet-Cookie: x"');
     expect(contentDisposition("résumé.pdf")).toContain("filename*=UTF-8''r%C3%A9sum%C3%A9.pdf");
+  });
+});
+
+describe("history per network", () => {
+  // A free port, so the restarted server can listen on the same one.
+  const freePort = async () => {
+    const probe = await buildApp({ dataDir: await mkdtemp(join(tmpdir(), "landrop-port-")) });
+    await probe.listen({ host: "127.0.0.1", port: 0 });
+    const { port } = probe.server.address() as { port: number };
+    await probe.close();
+    return port;
+  };
+  const until = async (done: () => boolean) => {
+    for (let i = 0; i < 100 && !done(); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(done()).toBe(true);
+  };
+
+  it("keeps each network's history in its own folder, and switches when the computer changes network", async () => {
+    let network: string | undefined = "home-router";
+    const host = await startHost({ dataDir, port: await freePort(), networkId: async () => network, checkMs: 10 });
+    try {
+      expect(existsSync(join(dataDir, "networks", "home-router", "landrop.db"))).toBe(true);
+
+      // Dropping off Wi-Fi for a moment isn't a new network: home's history stays open.
+      network = undefined;
+      await new Promise((r) => setTimeout(r, 50));
+      expect(host.networkId()).toBe("home-router");
+
+      network = "office-router";
+      await until(() => host.networkId() === "office-router");
+      expect(existsSync(join(dataDir, "networks", "office-router", "landrop.db"))).toBe(true);
+    } finally {
+      await host.close();
+    }
+  });
+
+  it("gives history from before networks were tracked to the network the computer is on", async () => {
+    // The previous version kept everything directly in the data folder.
+    await (await buildApp({ dataDir })).close();
+    await writeFile(join(dataDir, "files", "m1"), "attachment");
+
+    const host = await startHost({ dataDir, port: await freePort(), networkId: async () => "home-router", checkMs: 60_000 });
+    await host.close();
+
+    const home = join(dataDir, "networks", "home-router");
+    expect(existsSync(join(home, "landrop.db"))).toBe(true);
+    expect(existsSync(join(home, "files", "m1"))).toBe(true);
+    expect(existsSync(join(dataDir, "landrop.db"))).toBe(false);
+  });
+});
+
+describe("parseGateway", () => {
+  it("reads the router from macOS, Windows and Linux routing tables", () => {
+    expect(parseGateway("   route to: default\ndestination: default\n    gateway: 192.168.0.1\n  interface: en0\n")).toBe("192.168.0.1");
+    expect(
+      parseGateway("Network Destination        Netmask          Gateway       Interface  Metric\n          0.0.0.0          0.0.0.0      10.0.0.138       10.0.0.12     25\n"),
+    ).toBe("10.0.0.138");
+    expect(
+      parseGateway("Iface\tDestination\tGateway \tFlags\nwlan0\t00000000\t0100A8C0\t0003\nwlan0\t0000A8C0\t00000000\t0001\n"),
+    ).toBe("192.168.0.1");
+    expect(parseGateway("")).toBeUndefined();
   });
 });

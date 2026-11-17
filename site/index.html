@@ -3,129 +3,886 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LANDrop</title>
-  <meta name="description" content="Chat and share files of any size with every phone and computer on your Wi-Fi. Nothing leaves your network.">
+  <title>LANDrop: share anything across your Wi-Fi</title>
+  <meta name="description" content="Chat and share files of any size with every phone and computer on your Wi-Fi. No cloud, no accounts, nothing to install on phones.">
   <meta name="color-scheme" content="light dark">
+  <meta property="og:title" content="LANDrop">
+  <meta property="og:description" content="Chat and share files of any size with every device on your Wi-Fi. Nothing leaves your network.">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #ffffff;
-      --fg: #1d1d1f;
-      --muted: #6e6e73;
-      --card: #f5f5f7;
-      --line: rgba(0, 0, 0, 0.08);
-      --blue: #007aff;
+      --paper: #f3f5f9;
+      --surface: #ffffff;
+      --sunken: #e9edf4;
+      --ink: #101b33;
+      --muted: #56627a;
+      --line: rgba(16, 27, 51, 0.1);
+      --signal: #1f6bff;
+      --sky: #4fb3ff;
+      --online: #0fb59a;
+      --live: #f5a623;
+      --on-signal: #ffffff;
+      --shadow: 0 1px 2px rgba(16, 27, 51, 0.06), 0 12px 32px -12px rgba(16, 27, 51, 0.18);
+      --display: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+      --text: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
     }
     @media (prefers-color-scheme: dark) {
-      :root { --bg: #000000; --fg: #f5f5f7; --muted: #98989d; --card: #1c1c1e; --line: rgba(255, 255, 255, 0.1); --blue: #0a84ff; }
+      :root {
+        --paper: #08122a;
+        --surface: #0f1d3d;
+        --sunken: #0b1733;
+        --ink: #e8eefc;
+        --muted: #93a1bf;
+        --line: rgba(232, 238, 252, 0.1);
+        --signal: #4f8bff;
+        --sky: #6cc2ff;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px -16px rgba(0, 0, 0, 0.6);
+      }
     }
+
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
     body {
-      margin: 0; background: var(--bg); color: var(--fg);
-      font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
-      -webkit-font-smoothing: antialiased;
+      margin: 0; background: var(--paper); color: var(--ink);
+      font: 17px/1.55 var(--text); -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
-    main { max-width: 960px; margin: 0 auto; padding: 0 16px; }
-    a { color: var(--blue); }
-    header { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; }
+    a { color: var(--signal); }
+    :focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; border-radius: 8px; }
+    .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+    h1, h2, h3 { font-family: var(--display); margin: 0; letter-spacing: -0.02em; }
+    h2 { font-size: clamp(32px, 4.6vw, 52px); line-height: 1.04; font-weight: 800; max-width: 18ch; }
+    .intro { color: var(--muted); font-size: 19px; max-width: 56ch; margin: 18px 0 0; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; gap: 10px; text-decoration: none; cursor: pointer;
+      font: 600 17px/1 var(--text); border: 0; border-radius: 14px; padding: 16px 22px;
+      background: var(--signal); color: var(--on-signal);
+      box-shadow: 0 8px 24px -10px var(--signal);
+      transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 14px 30px -12px var(--signal); }
+    .btn:active { transform: translateY(0) scale(0.98); }
+    .btn svg { width: 20px; height: 20px; flex: none; }
+    .btn.quiet { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--line); }
+    .btn.quiet:hover { box-shadow: inset 0 0 0 1.5px var(--muted); }
+    .btn .dl-arrow { transition: transform 0.3s var(--ease); }
+    .btn:hover .dl-arrow { transform: translateY(2px); }
+
+    /* Nav */
+    .nav {
+      position: sticky; top: 0; z-index: 20;
+      background: color-mix(in srgb, var(--paper) 82%, transparent);
+      backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px);
+      border-bottom: 1px solid transparent; transition: border-color 0.3s;
+    }
+    .nav.scrolled { border-bottom-color: var(--line); }
+    .nav .wrap { display: flex; align-items: center; gap: 28px; height: 68px; }
+    .brand { display: flex; align-items: center; gap: 10px; font: 800 21px var(--display); color: var(--ink); text-decoration: none; letter-spacing: -0.02em; }
     .brand img { width: 32px; height: 32px; }
-    .hero { text-align: center; padding: 56px 0 40px; }
-    h1 { font-size: clamp(36px, 7vw, 64px); line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 16px; }
-    .lead { font-size: clamp(18px, 2.4vw, 22px); color: var(--muted); max-width: 640px; margin: 0 auto 32px; }
-    .button {
-      display: inline-flex; align-items: center; gap: 8px; background: var(--blue); color: #fff; text-decoration: none;
-      font-weight: 600; padding: 14px 26px; border-radius: 999px; font-size: 17px;
+    .nav-links { display: flex; gap: 22px; margin-left: auto; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-weight: 500; font-size: 15px; }
+    .nav-links a:hover { color: var(--ink); }
+    .nav .btn { padding: 11px 16px; font-size: 15px; border-radius: 11px; }
+    @media (max-width: 820px) { .nav-links { display: none; } .nav .btn { margin-left: auto; } }
+
+    /* Hero */
+    .hero { padding: 64px 0 40px; }
+    .hero .wrap { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 48px; align-items: center; }
+    .hero h1 { font-size: clamp(44px, 5.6vw, 76px); line-height: 0.96; font-weight: 800; letter-spacing: -0.035em; }
+    .hero h1 span { display: block; }
+    .hero .lead { font-size: clamp(18px, 1.9vw, 21px); color: var(--muted); margin: 24px 0 32px; max-width: 34ch; }
+    .cta-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .fine { color: var(--muted); font-size: 14px; margin-top: 16px; }
+    .proof { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 36px; padding: 0; list-style: none; }
+    .proof li { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 500; }
+    .proof svg { width: 18px; height: 18px; color: var(--online); flex: none; }
+    @media (max-width: 960px) { .hero .wrap { grid-template-columns: minmax(0, 1fr); } .hero { padding-top: 40px; } }
+
+    /* Console (hero dashboard) */
+    .console {
+      background: var(--surface); border-radius: 24px; box-shadow: var(--shadow);
+      border: 1px solid var(--line); overflow: hidden;
     }
-    .button:hover { filter: brightness(1.08); }
-    .fine { color: var(--muted); font-size: 14px; margin-top: 12px; }
-    section { padding: 48px 0; border-top: 1px solid var(--line); }
-    h2 { font-size: clamp(26px, 4vw, 34px); letter-spacing: -0.01em; margin: 0 0 24px; text-align: center; }
-    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-    .card { background: var(--card); border-radius: 18px; padding: 22px; }
-    .card h3 { margin: 0 0 6px; font-size: 18px; }
-    .card p { margin: 0; color: var(--muted); font-size: 15px; }
-    .step { font-size: 13px; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
-    .help { max-width: 680px; margin: 0 auto; }
-    details { background: var(--card); border-radius: 14px; padding: 16px 20px; margin-bottom: 12px; }
-    summary { cursor: pointer; font-weight: 600; }
-    details p { color: var(--muted); font-size: 15px; margin: 10px 0 0; }
-    footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 14px; text-align: center; }
+    .console-bar { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); font-size: 14px; }
+    .lights { display: flex; gap: 7px; }
+    .lights i { width: 11px; height: 11px; border-radius: 50%; background: var(--sunken); }
+    .console-title { font-weight: 600; }
+    .status { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 0 var(--online); animation: pulse 2s infinite; }
+    @keyframes pulse { 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+    .console-body { display: grid; grid-template-columns: 1.25fr 1fr; }
+    @media (max-width: 680px) { .console-body { grid-template-columns: minmax(0, 1fr); } }
+    .map { position: relative; border-right: 1px solid var(--line); background:
+      radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--signal) 9%, transparent) 0, transparent 60%); }
+    @media (max-width: 680px) { .map { border-right: 0; border-bottom: 1px solid var(--line); } }
+    .map svg { display: block; width: 100%; height: auto; }
+    .ring { fill: none; stroke: var(--line); }
+    .wave { fill: none; stroke: var(--signal); opacity: 0; transform-origin: 200px 170px; animation: wave 3.6s var(--ease) infinite; }
+    .wave.b { animation-delay: 1.2s; } .wave.c { animation-delay: 2.4s; }
+    @keyframes wave { 0% { transform: scale(0.3); opacity: 0.5; } 100% { transform: scale(1.6); opacity: 0; } }
+    .link { fill: none; stroke: var(--signal); stroke-width: 1.5; stroke-dasharray: 4 5; opacity: 0.45; }
+    .node { opacity: 0; transform-box: fill-box; transform-origin: center; }
+    .node rect.chip { fill: var(--surface); stroke: var(--line); }
+    .node text { font: 600 12px var(--text); fill: var(--ink); }
+    .node .glyph { fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    .node .dot { fill: var(--online); }
+    .hostnode rect.chip { fill: var(--signal); stroke: none; }
+    .hostnode text { fill: var(--on-signal); }
+    .hostnode .glyph { stroke: var(--on-signal); }
+    .packet { fill: var(--signal); }
+    .packet.live { fill: var(--live); }
+    .packet.dm { fill: var(--online); }
+    .booted .node { animation: pop 0.6s var(--ease) forwards; }
+    .booted .link { animation: draw 0.9s var(--ease) both; }
+    .booted .late:not(.joined) { animation: none; opacity: 0; }
+    @keyframes pop { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
+    @keyframes draw { from { stroke-dashoffset: 120; opacity: 0; } to { stroke-dashoffset: 0; opacity: 0.45; } }
+
+    .feed { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+    .feed h3 { font: 600 13px var(--text); color: var(--muted); letter-spacing: 0; }
+    .xfer { background: var(--sunken); border-radius: 14px; padding: 11px 12px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 4px 10px; align-items: center; }
+    .xfer .ico { grid-row: span 2; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--surface); }
+    .xfer .ico svg { width: 18px; height: 18px; }
+    .xfer .name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 8px; align-items: center; }
+    .xfer .meta { font-size: 12px; color: var(--muted); white-space: nowrap; display: flex; justify-content: space-between; gap: 8px; }
+    .bar { grid-column: 1 / -1; height: 5px; border-radius: 99px; background: color-mix(in srgb, var(--ink) 10%, transparent); overflow: hidden; }
+    .bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--signal); transition: width 0.6s linear; }
+    .xfer.is-live .bar i { background: var(--live); }
+    .xfer.is-done .bar i { background: var(--online); }
+    .tag { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 99px; flex: none; }
+    .tag.live { background: color-mix(in srgb, var(--live) 22%, transparent); color: color-mix(in srgb, var(--live) 70%, var(--ink)); }
+    .tag.private { background: color-mix(in srgb, var(--online) 20%, transparent); color: color-mix(in srgb, var(--online) 65%, var(--ink)); }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); }
+    .stats div { padding: 14px 18px; }
+    .stats div + div { border-left: 1px solid var(--line); }
+    .stats b { display: block; font: 700 22px var(--display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+    .stats span { font-size: 12.5px; color: var(--muted); }
+    .toast {
+      position: absolute; left: 50%; top: 14px; translate: -50% 0; white-space: nowrap;
+      background: var(--ink); color: var(--paper); font-size: 13px; font-weight: 600;
+      padding: 8px 14px; border-radius: 99px; opacity: 0; transform: translateY(-8px);
+      transition: opacity 0.4s var(--ease), transform 0.4s var(--ease); pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: none; }
+
+    /* Sections */
+    section.block { padding: 120px 0 0; }
+    @media (max-width: 700px) { section.block { padding-top: 88px; } }
+
+    /* Install stepper */
+    .install { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); gap: 40px; margin-top: 48px; align-items: start; }
+    @media (max-width: 900px) { .install { grid-template-columns: minmax(0, 1fr); } }
+    .steps { list-style: none; margin: 0; padding: 0; counter-reset: step; position: relative; }
+    .steps::before { content: ""; position: absolute; left: 21px; top: 24px; bottom: 24px; width: 2px; background: var(--line); }
+    .steps li { counter-increment: step; }
+    .step {
+      position: relative; width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer;
+      display: grid; grid-template-columns: 44px 1fr; gap: 16px; padding: 14px 14px 14px 0; border-radius: 16px;
+    }
+    .step::before {
+      content: counter(step); width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; z-index: 1;
+      font: 700 17px var(--display); background: var(--paper); box-shadow: inset 0 0 0 2px var(--line); color: var(--muted);
+      transition: background 0.35s var(--ease), color 0.35s, box-shadow 0.35s;
+    }
+    .step.done::before { content: "✓"; background: var(--online); color: #fff; box-shadow: none; }
+    .step[aria-selected="true"]::before { background: var(--signal); color: #fff; box-shadow: 0 0 0 6px color-mix(in srgb, var(--signal) 18%, transparent); }
+    .step strong { display: block; font: 700 19px/1.3 var(--display); letter-spacing: -0.01em; padding-top: 9px; }
+    .step span { display: block; color: var(--muted); font-size: 15.5px; max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.45s var(--ease), opacity 0.35s, margin 0.35s; }
+    .step[aria-selected="true"] span { max-height: 160px; opacity: 1; margin-top: 6px; }
+    .step kbd { font: 600 14px var(--text); background: var(--sunken); border-radius: 6px; padding: 1px 6px; }
+
+    .stage {
+      position: relative; aspect-ratio: 4 / 3; border-radius: 24px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line);
+      background: linear-gradient(160deg, color-mix(in srgb, var(--sky) 40%, var(--paper)), color-mix(in srgb, var(--signal) 55%, var(--paper)));
+    }
+    @media (max-width: 520px) { .stage { aspect-ratio: 3 / 4; } }
+    .menubar { position: absolute; inset: 0 0 auto 0; height: 28px; display: flex; align-items: center; gap: 16px; padding: 0 14px; font-size: 12.5px; font-weight: 600;
+      background: color-mix(in srgb, var(--surface) 70%, transparent); backdrop-filter: blur(10px); color: var(--ink); }
+    .menubar .right { margin-left: auto; display: flex; gap: 14px; align-items: center; }
+    .menubar img { width: 15px; height: 15px; }
+    .scene { position: absolute; inset: 28px 0 0 0; display: grid; place-items: center; padding: 20px; opacity: 0; visibility: hidden; transform: translateY(14px) scale(0.98);
+      transition: opacity 0.45s var(--ease), transform 0.55s var(--ease), visibility 0s 0.45s; }
+    .scene.on { opacity: 1; visibility: visible; transform: none; transition: opacity 0.45s var(--ease), transform 0.55s var(--ease), visibility 0s; }
+    .win { background: var(--surface); border-radius: 14px; box-shadow: 0 24px 60px -20px rgba(8, 18, 42, 0.5); width: min(100%, 400px); overflow: hidden; color: var(--ink); }
+    .win-bar { height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; }
+    .win-bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--sunken); }
+    .win-bar em { font-style: normal; margin: 0 auto; padding-right: 36px; color: var(--muted); }
+    .win-body { padding: 20px; }
+    .appicon { width: 64px; height: 64px; }
+    .fake-btn { display: inline-block; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 8px; background: var(--sunken); }
+    .fake-btn.primary { background: var(--signal); color: #fff; }
+    .scene.on .attention { animation: attention 1.6s var(--ease) 0.6s infinite; }
+    @keyframes attention { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--signal) 60%, transparent); } 50% { box-shadow: 0 0 0 7px transparent; } }
+
+    /* scene 1: download */
+    .dl-card { display: flex; gap: 14px; align-items: center; }
+    .dl-card .file { flex: 1; min-width: 0; }
+    .dl-card b { font-size: 14px; display: block; }
+    .dl-card small { color: var(--muted); font-size: 12px; }
+    .dl-card .bar { margin-top: 8px; }
+    .scene.on .dl-fill { animation: fill 2.4s var(--ease) 0.4s forwards; }
+    @keyframes fill { to { width: 100%; } }
+    /* scene 2: drag to Applications */
+    .dmg { display: flex; justify-content: space-around; align-items: center; padding: 26px 10px 30px; position: relative; }
+    .dmg figure { margin: 0; text-align: center; font-size: 12px; font-weight: 600; }
+    .dmg .folder { width: 64px; height: 64px; border-radius: 14px; background: linear-gradient(var(--sky), var(--signal)); display: grid; place-items: center; color: #fff; }
+    .dmg .folder svg { width: 30px; height: 30px; }
+    .dmg .drag-arrow { width: 70px; height: 20px; color: var(--muted); }
+    .scene.on .mover img { animation: drag 2.6s var(--ease) 0.5s infinite; }
+    #apps-folder { position: relative; z-index: 1; }
+    .scene.on #apps-folder .folder { animation: receive 2.6s var(--ease) 0.5s infinite; }
+    @keyframes receive { 0%, 50%, 100% { transform: none; } 60% { transform: scale(1.12); } 72% { transform: scale(0.97); } }
+    @keyframes drag { 0% { transform: none; opacity: 1; } 55% { transform: translateX(calc(var(--dx, 170px))) scale(0.85); opacity: 0.9; } 70%, 100% { transform: translateX(var(--dx, 170px)) scale(0.6); opacity: 0; } }
+    /* scene 3: privacy */
+    .settings-row { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; background: var(--sunken); font-size: 13px; }
+    .settings-row p { margin: 0; flex: 1; }
+    .shield { width: 22px; height: 22px; flex: none; color: var(--muted); }
+    .side { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+    .side b { color: var(--ink); background: color-mix(in srgb, var(--signal) 14%, transparent); padding: 4px 8px; border-radius: 6px; font-weight: 600; }
+    /* scene 4: firewall dialog */
+    .alert { text-align: center; width: min(100%, 300px); padding: 22px 20px 18px; }
+    .alert p { font-size: 13px; color: var(--muted); margin: 8px 0 16px; }
+    .alert h4 { margin: 10px 0 0; font: 700 15px/1.3 var(--text); }
+    .alert .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .alert .fake-btn { text-align: center; }
+    /* scene 5: QR + phone */
+    .join { display: flex; gap: 22px; align-items: center; justify-content: center; flex-wrap: wrap; }
+    .qr { width: 132px; height: 132px; padding: 10px; background: #fff; border-radius: 12px; display: grid; grid-template-columns: repeat(21, 1fr); }
+    .qr i { background: #101b33; }
+    .qr i.o { background: transparent; }
+    .phone { width: 128px; height: 236px; border-radius: 26px; background: #101b33; padding: 7px; position: relative; box-shadow: 0 24px 50px -18px rgba(8, 18, 42, 0.6); }
+    .phone .screen { width: 100%; height: 100%; border-radius: 20px; background: var(--surface); overflow: hidden; position: relative; display: grid; place-items: center; }
+    .viewfinder { position: absolute; inset: 0; display: grid; place-items: center; background: #1d2a48; transition: opacity 0.4s; }
+    .viewfinder .frame { width: 70px; height: 70px; border: 2px solid #fff; border-radius: 12px; position: relative; overflow: hidden; }
+    .viewfinder .frame::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; background: var(--sky); top: 0; }
+    .scene.on .viewfinder .frame::after { animation: scan 1.2s linear infinite; }
+    @keyframes scan { to { top: 100%; } }
+    .scene.on .viewfinder { animation: hide 0.4s 2.4s forwards; }
+    @keyframes hide { to { opacity: 0; } }
+    .joined { text-align: center; font-size: 11px; padding: 10px; }
+    .joined img { width: 38px; }
+    .joined b { display: block; font-size: 13px; margin-top: 6px; }
+    .stage-nav { display: flex; gap: 10px; margin-top: 18px; align-items: center; }
+    .stage-nav .count { color: var(--muted); font-size: 14px; margin-right: auto; font-variant-numeric: tabular-nums; }
+    .round { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--line); color: var(--ink); cursor: pointer; display: grid; place-items: center; transition: transform 0.2s var(--ease); }
+    .round:hover { transform: scale(1.06); }
+    .round:disabled { opacity: 0.35; cursor: default; transform: none; }
+    .round svg { width: 18px; height: 18px; }
+
+    /* Feature demo */
+    .usage { margin-top: 48px; display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 28px; }
+    @media (max-width: 900px) { .usage { grid-template-columns: minmax(0, 1fr); } }
+    .tabs { display: flex; flex-direction: column; gap: 4px; }
+    @media (max-width: 900px) { .tabs { flex-direction: row; overflow-x: auto; scrollbar-width: none; margin: 0 -24px; padding: 0 24px 4px; } }
+    .tab { text-align: left; background: none; border: 0; color: var(--muted); font: 600 16px var(--text); padding: 14px 16px; border-radius: 14px; cursor: pointer; display: flex; gap: 12px; align-items: center; white-space: nowrap; transition: background 0.25s, color 0.25s; }
+    .tab svg { width: 20px; height: 20px; flex: none; }
+    .tab:hover { color: var(--ink); }
+    .tab[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+    .tab[aria-selected="true"] svg { color: var(--signal); }
+    .panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; background: var(--surface); border-radius: 24px; padding: 32px; border: 1px solid var(--line); box-shadow: var(--shadow); min-height: 420px; }
+    .panel[hidden] { display: none; }
+    @media (max-width: 700px) { .panel { grid-template-columns: 1fr; padding: 22px; } }
+    .panel h3 { font-size: 30px; font-weight: 800; line-height: 1.08; }
+    .panel p { color: var(--muted); margin: 14px 0 0; }
+    .panel ul { margin: 18px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; font-size: 15.5px; }
+    .panel li { display: flex; gap: 10px; }
+    .panel li::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--signal); margin-top: 9px; flex: none; }
+    .panel.enter .demo > * { animation: rise 0.5s var(--ease) both; }
+    .panel.enter .demo > *:nth-child(2) { animation-delay: 0.08s; } .panel.enter .demo > *:nth-child(3) { animation-delay: 0.16s; }
+    .panel.enter .demo > *:nth-child(4) { animation-delay: 0.24s; } .panel.enter .demo > *:nth-child(5) { animation-delay: 0.32s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+    .demo { background: var(--sunken); border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 10px; min-height: 340px; justify-content: center; }
+    .msg { max-width: 78%; padding: 9px 13px; border-radius: 16px; font-size: 14.5px; line-height: 1.4; background: var(--surface); }
+    .msg small { display: block; font-size: 11.5px; font-weight: 600; color: var(--signal); margin-bottom: 2px; }
+    .msg.me { align-self: flex-end; background: var(--signal); color: #fff; }
+    .typing { display: inline-flex; gap: 4px; padding: 12px 14px; background: var(--surface); border-radius: 16px; align-self: flex-start; }
+    .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+    .typing i:nth-child(2) { animation-delay: 0.15s; } .typing i:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes blink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+    .media { align-self: flex-end; width: 70%; border-radius: 16px; overflow: hidden; background: var(--surface); }
+    .media .pic { aspect-ratio: 16 / 10; background: linear-gradient(135deg, #ffcf70, #ff7a59 45%, #6c4bd8); position: relative; }
+    .media .pic::after { content: ""; position: absolute; left: 12%; bottom: 0; width: 76%; height: 42%; background: #2b2259; clip-path: polygon(0 100%, 28% 20%, 46% 62%, 66% 0, 100% 100%); opacity: 0.8; }
+    .media div.cap { padding: 8px 12px; font-size: 12.5px; color: var(--muted); display: flex; justify-content: space-between; }
+    .player { background: #101b33; border-radius: 16px; overflow: hidden; color: #fff; }
+    .player .screen { aspect-ratio: 16 / 9; display: grid; place-items: center; background: radial-gradient(circle at 30% 30%, #2a4d9e, #101b33 70%); }
+    .player .play { width: 52px; height: 52px; border-radius: 50%; background: rgba(255, 255, 255, 0.18); display: grid; place-items: center; }
+    .player .play svg { width: 20px; height: 20px; margin-left: 3px; }
+    .player .ctrl { padding: 10px 12px; font-size: 12px; display: flex; gap: 10px; align-items: center; }
+    .player .scrub { flex: 1; height: 4px; border-radius: 99px; background: rgba(255, 255, 255, 0.2); position: relative; overflow: hidden; }
+    .player .scrub i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--live); }
+    .panel.enter .player .scrub i { animation: fill 6s linear 0.4s forwards; }
+    .device-list { display: grid; gap: 8px; }
+    .dev { display: flex; align-items: center; gap: 12px; background: var(--surface); padding: 12px 14px; border-radius: 14px; font-size: 14.5px; font-weight: 600; }
+    .dev svg { width: 20px; height: 20px; color: var(--muted); }
+    .dev .state { margin-left: auto; font-size: 12px; color: var(--online); display: flex; align-items: center; gap: 6px; font-weight: 600; }
+    .dev .state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .dev.sel { box-shadow: inset 0 0 0 2px var(--signal); }
+    .traymenu { background: var(--surface); border-radius: 12px; padding: 6px; font-size: 14px; box-shadow: 0 20px 40px -20px rgba(8, 18, 42, 0.4); align-self: center; width: min(100%, 320px); }
+    .traymenu div { padding: 7px 12px; border-radius: 7px; display: flex; gap: 8px; }
+    .traymenu .dim { color: var(--muted); }
+    .traymenu .sep { height: 1px; background: var(--line); padding: 0; margin: 5px 8px; }
+    .traymenu .hi { background: var(--signal); color: #fff; }
+    .traymenu .check { width: 14px; display: inline-block; }
+
+    /* Help */
+    .help { margin-top: 40px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; }
+    @media (max-width: 800px) { .help { grid-template-columns: minmax(0, 1fr); } }
+    details { border-bottom: 1px solid var(--line); }
+    summary { cursor: pointer; list-style: none; padding: 20px 0; font-weight: 600; font-size: 17px; display: flex; justify-content: space-between; gap: 16px; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; font: 500 24px/1 var(--display); color: var(--signal); transition: transform 0.3s var(--ease); }
+    details[open] summary::after { transform: rotate(45deg); }
+    details p { color: var(--muted); margin: -6px 0 20px; font-size: 15.5px; }
+
+    /* Closing */
+    .closing { margin: 140px 0 0; }
+    .closing .card {
+      position: relative; overflow: hidden; border-radius: 32px; padding: clamp(36px, 6vw, 72px);
+      background: linear-gradient(140deg, #0d2a6b, #1f6bff 70%, #4fb3ff); color: #fff;
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 32px; align-items: center;
+    }
+    @media (max-width: 760px) { .closing .card { grid-template-columns: minmax(0, 1fr); } }
+    .closing h2 { color: #fff; max-width: 16ch; }
+    .closing p { color: rgba(255, 255, 255, 0.8); margin: 14px 0 0; max-width: 44ch; }
+    .closing .btn { background: #fff; color: #0d2a6b; box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.4); }
+    .closing .rings { position: absolute; right: -140px; top: -140px; width: 480px; height: 480px; pointer-events: none; opacity: 0.25; }
+    footer { padding: 48px 0 56px; color: var(--muted); font-size: 14px; }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; }
+    footer a { color: var(--muted); }
+    footer .grow { margin-right: auto; }
+
+    /* Reveal on scroll: once per section, short */
+    .reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.8s var(--ease), transform 0.8s var(--ease); }
+    .reveal.in { opacity: 1; transform: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.001s !important; animation-iteration-count: 1 !important; transition-duration: 0.001s !important; }
+      html { scroll-behavior: auto; }
+      .reveal { opacity: 1; transform: none; }
+      .wave { display: none; }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <header>
-      <div class="brand"><img src="icon.svg" alt="">LANDrop</div>
-      <a href="https://github.com/engineer-dilnawaz/landdrop">GitHub</a>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-download" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M10.5 18.5h3"/></symbol>
+    <symbol id="i-laptop" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4.5 6.5a1.5 1.5 0 0 1 1.5-1.5h12a1.5 1.5 0 0 1 1.5 1.5V16h-15zM2.5 16h19l-1 2.5h-17z"/></symbol>
+    <symbol id="i-tablet" viewBox="0 0 24 24"><rect x="4" y="2.5" width="16" height="19" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="18.3" r="0.9" fill="currentColor"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17h0A1.5 1.5 0 0 1 4 15.5z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M6.5 3h7l4 4v14h-11z M13.5 3v4h4"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path fill="currentColor" d="m10 9 5 3-5 3z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path fill="none" stroke="currentColor" stroke-width="1.8" d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path stroke="currentColor" stroke-width="1.8" d="M3 8.5h18"/><path stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M7 12.5h6M7 15.5h4"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="m3.5 17 5-5 4 4 2.5-2.5 5 4.5"/><circle cx="15.5" cy="9" r="1.5" fill="currentColor"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m14.5 6-6 6 6 6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m9.5 6 6 6-6 6"/></symbol>
+  </svg>
+
+  <nav class="nav" id="nav">
+    <div class="wrap">
+      <a class="brand" href="#top"><img src="icon.svg" alt="">LANDrop</a>
+      <div class="nav-links">
+        <a href="#install">Install</a>
+        <a href="#use">How to use</a>
+        <a href="#help">Help</a>
+        <a href="https://github.com/engineer-dilnawaz/landdrop" target="_blank" rel="noopener">GitHub</a>
+      </div>
+      <a class="btn" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg">
+        <svg class="dl-arrow"><use href="#i-download"/></svg>Download
+      </a>
+    </div>
+  </nav>
+
+  <main id="top">
+    <header class="hero">
+      <div class="wrap">
+        <div>
+          <h1><span>Your Wi-Fi is</span><span>the cloud now.</span></h1>
+          <p class="lead">Chat and send files of any size between every phone, tablet and computer in the room. It all moves across your own network, so nothing is uploaded anywhere.</p>
+          <div class="cta-row">
+            <a class="btn" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg">
+              <svg class="dl-arrow"><use href="#i-download"/></svg>Download for Mac
+            </a>
+            <a class="btn quiet" href="#install">See how it works</a>
+          </div>
+          <p class="fine">Free for Macs with Apple silicon (M1 and newer). Phones and other computers just use their browser.</p>
+          <ul class="proof">
+            <li><svg><use href="#i-check"/></svg>No accounts</li>
+            <li><svg><use href="#i-check"/></svg>No file size limit</li>
+            <li><svg><use href="#i-check"/></svg>Works without internet</li>
+          </ul>
+        </div>
+
+        <div class="console" aria-label="Example of LANDrop running on a home network">
+          <div class="console-bar">
+            <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+            <span class="console-title">Home Wi-Fi</span>
+            <span class="status"><i class="pulse"></i><span id="online-count">4 devices online</span></span>
+          </div>
+          <div class="console-body">
+            <div class="map">
+              <svg id="netmap" viewBox="0 0 400 340" role="img" aria-label="A Mac in the middle connected to an iPhone, an Android phone, an iPad and a Windows laptop">
+                <circle class="ring" cx="200" cy="170" r="70"/>
+                <circle class="ring" cx="200" cy="170" r="130"/>
+                <circle class="wave" cx="200" cy="170" r="80"/>
+                <circle class="wave b" cx="200" cy="170" r="80"/>
+                <circle class="wave c" cx="200" cy="170" r="80"/>
+                <path id="l1" class="link" d="M200 170 L82 70"/>
+                <path id="l2" class="link" d="M200 170 L322 62" style="animation-delay:.15s"/>
+                <path id="l3" class="link" d="M200 170 L336 270" style="animation-delay:.3s"/>
+                <path id="l4" class="link" d="M200 170 L66 268" style="animation-delay:.45s"/>
+                <path id="l5" class="link late" d="M200 170 L200 312"/>
+                <g id="packets"></g>
+
+                <g class="node" style="animation-delay:.5s"><rect class="chip" x="40" y="48" width="84" height="44" rx="12"/><use href="#i-phone" class="glyph" x="48" y="58" width="22" height="22" style="color:var(--ink)"/><text x="74" y="74">iPhone</text><circle class="dot" cx="118" cy="54" r="3.5"/></g>
+                <g class="node" style="animation-delay:.65s"><rect class="chip" x="272" y="40" width="100" height="44" rx="12"/><use href="#i-phone" x="280" y="50" width="22" height="22" style="color:var(--ink)"/><text x="306" y="66">Galaxy S24</text><circle class="dot" cx="366" cy="46" r="3.5"/></g>
+                <g class="node" style="animation-delay:.8s"><rect class="chip" x="294" y="248" width="84" height="44" rx="12"/><use href="#i-tablet" x="302" y="258" width="22" height="22" style="color:var(--ink)"/><text x="328" y="274">iPad</text><circle class="dot" cx="372" cy="254" r="3.5"/></g>
+                <g class="node" style="animation-delay:.95s"><rect class="chip" x="16" y="246" width="100" height="44" rx="12"/><use href="#i-laptop" x="24" y="256" width="22" height="22" style="color:var(--ink)"/><text x="50" y="272">Windows PC</text><circle class="dot" cx="110" cy="252" r="3.5"/></g>
+                <g class="node late" id="late-node"><rect class="chip" x="152" y="292" width="96" height="40" rx="12"/><use href="#i-phone" x="160" y="301" width="22" height="22" style="color:var(--ink)"/><text x="186" y="316">Pixel 9</text><circle class="dot" cx="242" cy="298" r="3.5"/></g>
+                <g class="node hostnode" style="animation-delay:.2s"><rect class="chip" x="150" y="146" width="100" height="48" rx="14"/><use href="#i-laptop" x="160" y="158" width="24" height="24" style="color:#fff"/><text x="190" y="175">MacBook</text></g>
+              </svg>
+              <div class="toast" id="toast" role="status"></div>
+            </div>
+            <div class="feed">
+              <h3>Transfers</h3>
+              <div class="xfer" data-size="4.2" data-speed="0.21" data-unit="GB">
+                <span class="ico"><svg style="color:var(--signal)"><use href="#i-film"/></svg></span>
+                <span class="name">Beach trip.mov</span>
+                <span class="meta"><span>iPhone to everyone</span><span class="pct">0%</span></span>
+                <span class="bar"><i></i></span>
+              </div>
+              <div class="xfer is-live">
+                <span class="ico"><svg style="color:var(--live)"><use href="#i-film"/></svg></span>
+                <span class="name">Final cut 4K.mp4 <span class="tag live">Live</span></span>
+                <span class="meta"><span>From Windows PC</span><span>38 GB</span></span>
+                <span class="bar"><i style="width:100%"></i></span>
+              </div>
+              <div class="xfer" data-size="12" data-speed="1.4" data-unit="MB">
+                <span class="ico"><svg style="color:var(--online)"><use href="#i-file"/></svg></span>
+                <span class="name">Lease.pdf <span class="tag private">Private</span></span>
+                <span class="meta"><span>Galaxy S24 to iPad</span><span class="pct">0%</span></span>
+                <span class="bar"><i></i></span>
+              </div>
+            </div>
+          </div>
+          <div class="stats">
+            <div><b id="moved">0 GB</b><span>moved today</span></div>
+            <div><b>0 bytes</b><span>sent to the internet</span></div>
+            <div><b id="speed">0 MB/s</b><span>across your Wi-Fi</span></div>
+          </div>
+        </div>
+      </div>
     </header>
 
-    <div class="hero">
-      <h1>Share anything with every<br>device on your Wi-Fi.</h1>
-      <p class="lead">Chat and share files of any size between iPhones, Android phones and computers. Nothing goes to the internet: it all stays on your network.</p>
-      <a class="button" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg">
-        Download for Mac
-      </a>
-      <p class="fine">For Macs with Apple silicon (M1 and newer). Free. Phones need nothing installed.</p>
-    </div>
+    <section class="block" id="install">
+      <div class="wrap">
+        <div class="reveal">
+          <h2>Set up in about two minutes</h2>
+          <p class="intro">Your Mac becomes the hub everyone connects to. You install it once; every other device just scans a code.</p>
+        </div>
+        <div class="install reveal">
+          <ol class="steps" role="tablist" aria-label="Installation steps">
+            <li><button class="step" role="tab" aria-selected="true" aria-controls="sc1" id="st1"><div><strong>Download LANDrop</strong><span>Get the free installer for Macs with Apple silicon. It's a single <kbd>.dmg</kbd> file of about 120 MB.</span></div></button></li>
+            <li><button class="step" role="tab" aria-selected="false" aria-controls="sc2" id="st2" tabindex="-1"><div><strong>Move it to Applications</strong><span>Open the downloaded file and drag the LANDrop icon onto the Applications folder.</span></div></button></li>
+            <li><button class="step" role="tab" aria-selected="false" aria-controls="sc3" id="st3" tabindex="-1"><div><strong>Allow it the first time</strong><span>LANDrop isn't notarized by Apple yet, so macOS asks first. Open it once, then go to System Settings, Privacy &amp; Security, and click <kbd>Open Anyway</kbd>.</span></div></button></li>
+            <li><button class="step" role="tab" aria-selected="false" aria-controls="sc4" id="st4" tabindex="-1"><div><strong>Let devices connect</strong><span>When macOS asks whether LANDrop can accept incoming network connections, click <kbd>Allow</kbd>. Without it, phones can't reach your Mac.</span></div></button></li>
+            <li><button class="step" role="tab" aria-selected="false" aria-controls="sc5" id="st5" tabindex="-1"><div><strong>Scan to join</strong><span>Click the LANDrop icon in the menu bar and choose Show QR Code. Any device on the same Wi-Fi scans it and opens LANDrop in its browser.</span></div></button></li>
+          </ol>
 
-    <section>
-      <h2>How it works</h2>
-      <div class="grid">
-        <div class="card">
-          <div class="step">Step 1</div>
-          <h3>Open LANDrop on a Mac</h3>
-          <p>It sits in the menu bar and can start when you log in, so it's there whenever your Mac is awake.</p>
-        </div>
-        <div class="card">
-          <div class="step">Step 2</div>
-          <h3>Scan the QR code</h3>
-          <p>Any phone or computer on the same Wi-Fi scans it and LANDrop opens in the browser. No app store, no account.</p>
-        </div>
-        <div class="card">
-          <div class="step">Step 3</div>
-          <h3>Chat and share</h3>
-          <p>Message everyone in the group, or anyone privately. Send photos, videos and files straight across your Wi-Fi.</p>
+          <div>
+            <div class="stage">
+              <div class="menubar" aria-hidden="true"><span></span><span>Finder</span><span style="font-weight:500">File</span><span style="font-weight:500">Edit</span><div class="right"><img src="icon.svg" alt=""><span id="clock">9:41</span></div></div>
+
+              <div class="scene on" id="sc1" role="tabpanel" aria-labelledby="st1">
+                <div class="win"><div class="win-bar"><i></i><i></i><i></i><em>Downloads</em></div>
+                  <div class="win-body dl-card"><img class="appicon" src="icon.svg" alt=""><div class="file"><b>LANDrop-mac-arm64.dmg</b><small>From github.com</small><div class="bar"><i class="dl-fill" style="background:var(--signal)"></i></div></div></div>
+                </div>
+              </div>
+
+              <div class="scene" id="sc2" role="tabpanel" aria-labelledby="st2">
+                <div class="win"><div class="win-bar"><i></i><i></i><i></i><em>LANDrop</em></div>
+                  <div class="dmg">
+                    <figure class="mover" id="mover"><img class="appicon" src="icon.svg" alt=""><figcaption>LANDrop</figcaption></figure>
+                    <svg class="drag-arrow" viewBox="0 0 70 20" aria-hidden="true"><path d="M2 10h62m-8-7 8 7-8 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 4"/></svg>
+                    <figure id="apps-folder"><div class="folder"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 4.5 4 18.5h3.2L12 10l4.8 8.5H20z"/></svg></div><figcaption>Applications</figcaption></figure>
+                  </div>
+                </div>
+              </div>
+
+              <div class="scene" id="sc3" role="tabpanel" aria-labelledby="st3">
+                <div class="win"><div class="win-bar"><i></i><i></i><i></i><em>Privacy &amp; Security</em></div>
+                  <div class="win-body">
+                    <div class="side"><span>Wi-Fi</span><span>General</span><b>Privacy &amp; Security</b></div>
+                    <div class="settings-row"><svg class="shield" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/></svg><p>"LANDrop" was blocked to protect your Mac.</p><span class="fake-btn primary attention">Open Anyway</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="scene" id="sc4" role="tabpanel" aria-labelledby="st4">
+                <div class="win alert"><img class="appicon" src="icon.svg" alt="" style="width:52px;height:52px"><h4>Do you want "LANDrop" to accept incoming network connections?</h4><p>This lets phones and computers on your Wi-Fi reach it.</p><div class="row"><span class="fake-btn">Deny</span><span class="fake-btn primary attention">Allow</span></div></div>
+              </div>
+
+              <div class="scene" id="sc5" role="tabpanel" aria-labelledby="st5">
+                <div class="join">
+                  <div class="win" style="width:auto"><div class="win-bar"><i></i><i></i><i></i><em>Join LANDrop</em></div><div class="win-body" style="text-align:center;font-size:12px;color:var(--muted)"><div class="qr" id="qr" aria-hidden="true"></div><div style="margin-top:8px">192.168.1.24:4545</div></div></div>
+                  <div class="phone" aria-hidden="true"><div class="screen"><div class="joined"><img src="icon.svg" alt=""><b>You're in</b>4 devices nearby</div><div class="viewfinder"><div class="frame"></div></div></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="stage-nav">
+              <span class="count" id="count">Step 1 of 5</span>
+              <button class="round" id="prev" aria-label="Previous step" disabled><svg><use href="#i-left"/></svg></button>
+              <button class="round" id="next" aria-label="Next step"><svg><use href="#i-right"/></svg></button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
 
-    <section>
-      <h2>Made for big files</h2>
-      <div class="grid">
-        <div class="card">
-          <h3>No size limit</h3>
-          <p>Share a 40 GB movie. Files too big to copy are streamed live from your device: others can watch or save them while you're online.</p>
+    <section class="block" id="use">
+      <div class="wrap">
+        <div class="reveal">
+          <h2>Everything you'd use a chat app for, minus the internet</h2>
+          <p class="intro">Once devices have joined, LANDrop works like a group chat for everyone on your Wi-Fi, built for moving real files.</p>
         </div>
-        <div class="card">
-          <h3>Private by design</h3>
-          <p>Messages and files travel only over your own network and are kept on your Mac. There's no cloud and no sign-up.</p>
-        </div>
-        <div class="card">
-          <h3>Every device</h3>
-          <p>iPhone, Android, iPad, Windows and Mac: anything with a web browser can join, and sees who else is around.</p>
+        <div class="usage reveal">
+          <div class="tabs" role="tablist" aria-label="Features">
+            <button class="tab" role="tab" aria-selected="true" aria-controls="p1" id="t1"><svg><use href="#i-chat"/></svg>Chat with everyone</button>
+            <button class="tab" role="tab" aria-selected="false" aria-controls="p2" id="t2" tabindex="-1"><svg><use href="#i-image"/></svg>Send photos and files</button>
+            <button class="tab" role="tab" aria-selected="false" aria-controls="p3" id="t3" tabindex="-1"><svg><use href="#i-film"/></svg>Stream huge files</button>
+            <button class="tab" role="tab" aria-selected="false" aria-controls="p4" id="t4" tabindex="-1"><svg><use href="#i-lock"/></svg>Talk privately</button>
+            <button class="tab" role="tab" aria-selected="false" aria-controls="p5" id="t5" tabindex="-1"><svg><use href="#i-menu"/></svg>Lives in your menu bar</button>
+          </div>
+
+          <div class="panel" role="tabpanel" id="p1" aria-labelledby="t1">
+            <div><h3>One room for every device</h3><p>Everyone who joins lands in the same group chat, whatever they're holding.</p>
+              <ul><li>See who's online right now</li><li>Name your device so others know it's you</li><li>History stays on your Mac until you clear it</li></ul></div>
+            <div class="demo">
+              <div class="msg"><small>Sara's iPhone</small>Is the printer document on someone's laptop?</div>
+              <div class="msg"><small>Windows PC</small>Sending it now</div>
+              <div class="msg me">Got it, thanks!</div>
+              <div class="typing" aria-label="Someone is typing"><i></i><i></i><i></i></div>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="p2" aria-labelledby="t2" hidden>
+            <div><h3>Full quality, full speed</h3><p>Photos and videos arrive exactly as they were taken, with no compression, at the speed of your Wi-Fi.</p>
+              <ul><li>Drop files into the chat or pick them from your phone</li><li>Preview images and videos right in the chat</li><li>Anyone can save a file to their own device</li></ul></div>
+            <div class="demo">
+              <div class="msg"><small>Galaxy S24</small>Sending the sunset ones</div>
+              <div class="media"><div class="pic"></div><div class="cap"><span>IMG_2048.HEIC</span><span>8.4 MB</span></div></div>
+              <div class="msg me" style="max-width:60%">Wow, the original quality</div>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="p3" aria-labelledby="t3" hidden>
+            <div><h3>No size limit. Really.</h3><p>Files too big to copy are streamed straight from the device that has them. Others watch or save while the sender stays online.</p>
+              <ul><li>Share a 40 GB movie without waiting for an upload</li><li>Start watching before the whole file has moved</li><li>Nothing piles up on your Mac's disk</li></ul></div>
+            <div class="demo">
+              <div class="msg"><small>Windows PC</small>Here's the full edit, 38 GB</div>
+              <div class="player"><div class="screen"><span class="play"><svg viewBox="0 0 24 24"><path fill="#fff" d="M7 4.5v15l12-7.5z"/></svg></span></div><div class="ctrl"><span>12:04</span><span class="scrub"><i></i></span><span class="tag live">Live</span></div></div>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="p4" aria-labelledby="t4" hidden>
+            <div><h3>Message one device, not the room</h3><p>Pick a device to start a private conversation. Only the two of you see it.</p>
+              <ul><li>Send private files the same way</li><li>Switch between group and private chats in one tap</li><li>Private groups of several devices are coming soon</li></ul></div>
+            <div class="demo device-list">
+              <div class="dev"><svg><use href="#i-phone"/></svg>Sara's iPhone<span class="state">Online</span></div>
+              <div class="dev sel"><svg><use href="#i-tablet"/></svg>Kitchen iPad<span class="state">Online</span></div>
+              <div class="dev"><svg><use href="#i-laptop"/></svg>Windows PC<span class="state">Online</span></div>
+              <div class="msg me" style="margin-top:6px">Here's the recipe, just for you</div>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="p5" aria-labelledby="t5" hidden>
+            <div><h3>Always there, never in the way</h3><p>LANDrop runs quietly in your Mac's menu bar, so devices can join whenever your Mac is awake.</p>
+              <ul><li>Show the join code in one click</li><li>Start automatically when you log in</li><li>Keep the Mac awake while it's plugged in</li></ul></div>
+            <div class="demo">
+              <div class="traymenu" role="presentation">
+                <div class="dim">Running at 192.168.1.24:4545</div>
+                <div class="sep"></div>
+                <div class="hi">Show QR Code to Join…</div>
+                <div>Open LANDrop</div>
+                <div class="sep"></div>
+                <div><span class="check">✓</span>Start at Login</div>
+                <div><span class="check">✓</span>Keep Mac Awake While Plugged In</div>
+                <div class="sep"></div>
+                <div>Quit LANDrop</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class="help">
-      <h2>Help</h2>
-      <details>
-        <summary>The Mac says it can't verify LANDrop</summary>
-        <p>LANDrop isn't signed by Apple yet. Open it once, then go to System Settings → Privacy &amp; Security and click <strong>Open Anyway</strong>. If macOS asks whether LANDrop may accept incoming connections, click <strong>Allow</strong>, or phones can't reach it.</p>
-      </details>
-      <details>
-        <summary>A phone can't open LANDrop</summary>
-        <p>Make sure the phone is on the same Wi-Fi as the Mac, not mobile data. On Android Chrome, turn off Settings → Privacy and security → <strong>Always use secure connections</strong>; LANDrop runs on your local network without https, which that setting blocks.</p>
-      </details>
-      <details>
-        <summary>LANDrop stopped working when my Mac slept</summary>
-        <p>A sleeping Mac can't answer phones. From the menu bar icon, turn on <strong>Keep Mac Awake While Plugged In</strong>. Closing a laptop's lid still puts it to sleep.</p>
-      </details>
+
+    <section class="block" id="help">
+      <div class="wrap">
+        <h2 class="reveal">Questions and fixes</h2>
+        <div class="help reveal">
+          <div>
+            <details><summary>Is LANDrop free?</summary><p>Yes. The Mac app is free, and other devices don't need anything installed.</p></details>
+            <details><summary>Which Macs does it run on?</summary><p>Macs with Apple silicon (M1 and newer). Any device with a modern web browser can join: iPhone, iPad, Android, Windows, Linux or another Mac.</p></details>
+            <details><summary>Where are my messages and files kept?</summary><p>On the Mac running LANDrop, in a folder called .landrop in your home folder. Nothing is sent to a server, and the chat stays until you clear it.</p></details>
+            <details><summary>Does it need the internet?</summary><p>No. Devices only need to be on the same Wi-Fi or local network as the Mac.</p></details>
+          </div>
+          <div>
+            <details><summary>macOS says it can't verify LANDrop</summary><p>LANDrop isn't notarized by Apple yet. Open it once, then go to System Settings, Privacy &amp; Security, and click Open Anyway. You only need to do this the first time.</p></details>
+            <details><summary>A phone can't open LANDrop</summary><p>Check the phone is on the same Wi-Fi as the Mac, not mobile data. On Android Chrome, turn off Settings, Privacy and security, Always use secure connections. LANDrop runs on your local network without https, and that setting blocks it.</p></details>
+            <details><summary>LANDrop stops working when my Mac sleeps</summary><p>A sleeping Mac can't answer other devices. From the menu bar icon, turn on Keep Mac Awake While Plugged In. Closing a laptop's lid still puts it to sleep.</p></details>
+            <details><summary>"Another copy of LANDrop is using port 4545"</summary><p>LANDrop is already running somewhere, for example from Terminal. Quit that copy, then open LANDrop again.</p></details>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <footer>LANDrop · Everything stays on your Wi-Fi.</footer>
+    <section class="closing">
+      <div class="wrap">
+        <div class="card reveal">
+          <svg class="rings" viewBox="0 0 200 200" aria-hidden="true"><g fill="none" stroke="#fff"><circle cx="100" cy="100" r="30"/><circle cx="100" cy="100" r="55"/><circle cx="100" cy="100" r="80"/><circle cx="100" cy="100" r="99"/></g></svg>
+          <div>
+            <h2>Turn your Mac into the hub of the room</h2>
+            <p>Free download. Phones join with a scan, and nothing ever leaves your network.</p>
+          </div>
+          <a class="btn" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg"><svg class="dl-arrow"><use href="#i-download"/></svg>Download for Mac</a>
+        </div>
+      </div>
+    </section>
   </main>
+
+  <footer>
+    <div class="wrap">
+      <span class="grow">LANDrop. Everything stays on your Wi-Fi.</span>
+      <a href="https://github.com/engineer-dilnawaz/landdrop" target="_blank" rel="noopener">Source on GitHub</a>
+      <a href="https://github.com/engineer-dilnawaz/landdrop/releases" target="_blank" rel="noopener">Releases</a>
+      <span>Made by Dilnawaz Khan</span>
+    </div>
+  </footer>
+
+  <script>
+  (() => {
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // Nav border once scrolled
+    const nav = document.getElementById("nav");
+    addEventListener("scroll", () => nav.classList.toggle("scrolled", scrollY > 8), { passive: true });
+
+    // Section reveals
+    const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+      if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+    }), { threshold: 0.15 });
+    document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+
+    // ---- Hero console ----
+    const map = document.getElementById("netmap");
+    const packets = document.getElementById("packets");
+    const toast = document.getElementById("toast");
+    const NS = "http://www.w3.org/2000/svg";
+    // Size each device chip to its label, keeping it centred where its link ends.
+    function fitChips() {
+      map.querySelectorAll(".node").forEach((node) => {
+        const rect = node.querySelector("rect"), icon = node.querySelector("use"), text = node.querySelector("text"), dot = node.querySelector(".dot");
+        const h = +rect.getAttribute("height"), y = +rect.getAttribute("y");
+        const cx = +rect.getAttribute("x") + +rect.getAttribute("width") / 2;
+        const iconSize = +icon.getAttribute("width");
+        const w = 12 + iconSize + 7 + text.getComputedTextLength() + 16;
+        const x = Math.min(396 - w, Math.max(4, cx - w / 2));
+        rect.setAttribute("x", x); rect.setAttribute("width", w);
+        icon.setAttribute("x", x + 12); icon.setAttribute("y", y + (h - iconSize) / 2);
+        text.setAttribute("x", x + 12 + iconSize + 7); text.setAttribute("y", y + h / 2 + 4);
+        if (dot) { dot.setAttribute("cx", x + w - 7); dot.setAttribute("cy", y + 7); }
+      });
+    }
+    fitChips();
+    document.fonts.ready.then(fitChips);
+    requestAnimationFrame(() => map.classList.add("booted"));
+
+    function showToast(text) {
+      toast.textContent = text;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2600);
+    }
+
+    // A packet travels along a link; reverse=true goes from the device to the Mac.
+    function send(linkId, cls, reverse, delay) {
+      if (reduce) return;
+      const path = document.getElementById(linkId);
+      const len = path.getTotalLength();
+      const dot = document.createElementNS(NS, "circle");
+      dot.setAttribute("r", "4.5");
+      dot.setAttribute("class", "packet " + (cls || ""));
+      packets.appendChild(dot);
+      const start = performance.now() + (delay || 0);
+      const dur = 1100;
+      (function step(now) {
+        const t = Math.min(1, Math.max(0, (now - start) / dur));
+        const k = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const p = path.getPointAtLength((reverse ? 1 - k : k) * len);
+        dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y);
+        dot.style.opacity = t <= 0 ? 0 : 1;
+        if (t < 1) requestAnimationFrame(step); else dot.remove();
+      })(performance.now());
+    }
+
+    // Broadcast: device -> Mac -> everyone else
+    function broadcast(from, cls) {
+      send(from, cls, true, 0);
+      ["l1", "l2", "l3", "l4"].filter((l) => l !== from).forEach((l, i) => send(l, cls, false, 1050 + i * 60));
+    }
+
+    let online = 4;
+    const script = [
+      () => broadcast("l1"),
+      () => { send("l4", "live", true); setTimeout(() => send("l3", "live"), 1050); },
+      () => { send("l2", "dm", true); setTimeout(() => send("l3", "dm"), 1050); },
+      () => {
+        if (online === 4) {
+          document.querySelectorAll(".late").forEach((el) => el.classList.add("joined"));
+          online = 5;
+          document.getElementById("online-count").textContent = "5 devices online";
+          showToast("Pixel 9 joined");
+        } else broadcast("l2");
+      },
+      () => broadcast("l3"),
+    ];
+    let beat = 0;
+    if (!reduce) {
+      setTimeout(function tick() { script[beat++ % script.length](); setTimeout(tick, 2200); }, 1500);
+    } else {
+      document.querySelectorAll(".late").forEach((el) => el.classList.add("joined"));
+      document.getElementById("online-count").textContent = "5 devices online";
+    }
+
+    // Transfer rows and stats
+    const rows = [...document.querySelectorAll(".xfer[data-size]")];
+    rows.forEach((r) => (r.done = 0));
+    let moved = 41.8;
+    const movedEl = document.getElementById("moved");
+    const speedEl = document.getElementById("speed");
+    function updateTransfers() {
+      let speed = 0;
+      rows.forEach((r) => {
+        const size = +r.dataset.size;
+        const step = +r.dataset.speed * (0.8 + Math.random() * 0.4);
+        r.done = Math.min(size, r.done + step);
+        if (r.done >= size && !r.classList.contains("is-done")) {
+          r.classList.add("is-done");
+          setTimeout(() => { r.done = 0; r.classList.remove("is-done"); }, 2400);
+        }
+        const pct = Math.round((r.done / size) * 100);
+        r.querySelector(".bar i").style.width = pct + "%";
+        r.querySelector(".pct").textContent = r.classList.contains("is-done") ? "Done" : pct + "%";
+        if (!r.classList.contains("is-done")) speed += r.dataset.unit === "GB" ? step * 1024 : step;
+        if (r.dataset.unit === "GB") moved += step;
+      });
+      movedEl.textContent = moved.toFixed(1) + " GB";
+      speedEl.textContent = Math.round(speed) + " MB/s";
+    }
+    updateTransfers();
+    if (!reduce) setInterval(updateTransfers, 1000);
+    else rows.forEach((r) => { r.querySelector(".bar i").style.width = "64%"; r.querySelector(".pct").textContent = "64%"; });
+
+    // ---- Tab helper (steps and feature tabs) ----
+    function tabs(buttons, onSelect) {
+      buttons.forEach((b, i) => {
+        b.addEventListener("click", () => onSelect(i, true));
+        b.addEventListener("keydown", (e) => {
+          const keys = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+          if (!(e.key in keys)) return;
+          e.preventDefault();
+          const j = (i + keys[e.key] + buttons.length) % buttons.length;
+          onSelect(j, true); buttons[j].focus();
+        });
+      });
+    }
+
+    // Install stepper
+    const steps = [...document.querySelectorAll(".step")];
+    const scenes = steps.map((s) => document.getElementById(s.getAttribute("aria-controls")));
+    const prev = document.getElementById("prev");
+    const next = document.getElementById("next");
+    const count = document.getElementById("count");
+    let current = 0, touched = false;
+    function go(i, byUser) {
+      if (byUser) touched = true;
+      current = i;
+      steps.forEach((s, j) => {
+        s.setAttribute("aria-selected", j === i);
+        s.tabIndex = j === i ? 0 : -1;
+        s.classList.toggle("done", j < i);
+      });
+      scenes.forEach((sc, j) => sc.classList.toggle("on", j === i));
+      prev.disabled = i === 0;
+      next.disabled = i === steps.length - 1;
+      count.textContent = `Step ${i + 1} of ${steps.length}`;
+    }
+    tabs(steps, go);
+    prev.addEventListener("click", () => go(Math.max(0, current - 1), true));
+    next.addEventListener("click", () => go(Math.min(steps.length - 1, current + 1), true));
+    // Walk through on its own while visible, until someone takes over.
+    const stage = document.querySelector(".stage");
+    let autoTimer;
+    new IntersectionObserver(([e]) => {
+      clearInterval(autoTimer);
+      if (e.isIntersecting && !reduce) autoTimer = setInterval(() => { if (!touched) go((current + 1) % steps.length); }, 4200);
+    }, { threshold: 0.5 }).observe(stage);
+
+    // Drag distance for the dmg scene
+    function measureDrag() {
+      const m = document.querySelector("#mover img"), f = document.querySelector("#apps-folder .folder");
+      const dx = f.getBoundingClientRect().left - m.getBoundingClientRect().left;
+      if (dx > 0) document.getElementById("mover").style.setProperty("--dx", dx + "px");
+    }
+    new MutationObserver(measureDrag).observe(scenes[1], { attributes: true, attributeFilter: ["class"] });
+    addEventListener("resize", measureDrag);
+
+    // Decorative QR pattern with three finder squares
+    const qr = document.getElementById("qr");
+    const N = 21;
+    const finder = (r, c) => {
+      for (const [fr, fc] of [[0, 0], [0, 14], [14, 0]]) {
+        const y = r - fr, x = c - fc;
+        if (y >= 0 && y < 7 && x >= 0 && x < 7) return (y === 0 || y === 6 || x === 0 || x === 6 || (y > 1 && y < 5 && x > 1 && x < 5)) ? 1 : 0;
+      }
+      return -1;
+    };
+    let seed = 7;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const f = finder(r, c);
+      const i = document.createElement("i");
+      if (f === 0 || (f === -1 && rand() < 0.5)) i.className = "o";
+      qr.appendChild(i);
+    }
+
+    // Feature tabs
+    const ftabs = [...document.querySelectorAll(".tab")];
+    const panels = ftabs.map((t) => document.getElementById(t.getAttribute("aria-controls")));
+    tabs(ftabs, (i) => {
+      ftabs.forEach((t, j) => { t.setAttribute("aria-selected", j === i); t.tabIndex = j === i ? 0 : -1; });
+      panels.forEach((p, j) => {
+        p.hidden = j !== i;
+        p.classList.remove("enter");
+        if (j === i) { void p.offsetWidth; p.classList.add("enter"); }
+      });
+    });
+
+    // Live clock in the fake menu bar
+    const clock = document.getElementById("clock");
+    const setClock = () => (clock.textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    setClock(); setInterval(setClock, 30000);
+  })();
+  </script>
 </body>
 </html>

@@ -1,36 +1,146 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+<div align="center">
 
-## Getting Started
+<img src="site/icon.svg" width="96" height="96" alt="LANDrop icon">
 
-First, run the development server:
+# LANDrop
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+**Chat and share files of any size with every device on your Wi-Fi.**
+No cloud, no accounts, no app to install on phones.
+
+[![Latest release](https://img.shields.io/github/v/release/engineer-dilnawaz/landdrop?label=release)](https://github.com/engineer-dilnawaz/landdrop/releases/latest)
+![Platform](https://img.shields.io/badge/host-macOS%20(Apple%20silicon)-black)
+![Clients](https://img.shields.io/badge/clients-any%20web%20browser-blue)
+
+[**Download for Mac**](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg) · [Website](https://landdrop.vercel.app) · [Releases](https://github.com/engineer-dilnawaz/landdrop/releases)
+
+</div>
+
+---
+
+## Why LANDrop
+
+Moving a video from an Android phone to a Mac, or a document from a Windows laptop to an iPhone, still usually means a cloud upload, a cable, or a messaging app that compresses everything. LANDrop turns your Mac into a private hub on your local network: every phone, tablet and computer on the same Wi-Fi can chat and exchange files directly, at network speed.
+
+- **Private by design.** Messages and files travel only over your own network and are stored on your Mac. Nothing is sent to the internet.
+- **No size limit.** Share a 40 GB file. Files too big to copy are streamed live from the sender's device, so others can watch or save them while the sender is online.
+- **Every device.** iPhone, Android, iPad, Windows, Linux and Mac: anything with a modern browser can join.
+- **Zero setup for guests.** Scan a QR code and you're in. No app store, no sign-up.
+
+## Features
+
+| | |
+|---|---|
+| **Group and private chat** | Message everyone on the network, or a single device privately. |
+| **File sharing** | Photos, videos and documents of any size, with in-chat previews. |
+| **Live streaming of large files** | Huge files are served straight from the sender's device instead of being copied first. |
+| **Device discovery** | See who is online on your network in real time. |
+| **QR join** | The Mac shows a QR code; any device scans it to open LANDrop in its browser. |
+| **Menu bar app** | Runs quietly in the Mac menu bar, can start at login, and can keep the Mac awake while plugged in. |
+
+## Getting started
+
+### 1. Install on your Mac
+
+1. [Download `LANDrop-mac-arm64.dmg`](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg) (Apple silicon: M1 and newer).
+2. Open the dmg and drag **LANDrop** into **Applications**.
+3. Open LANDrop. Because it isn't notarized by Apple yet, macOS will block the first launch. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
+4. When macOS asks whether LANDrop may accept incoming network connections, click **Allow**. Without this, other devices can't reach it.
+
+### 2. Connect your devices
+
+1. Click the LANDrop icon in the menu bar to show the QR code.
+2. On any phone or computer **on the same Wi-Fi**, scan the code (or type the address shown under it).
+3. LANDrop opens in the browser. Pick a name and start chatting.
+
+### Troubleshooting
+
+<details>
+<summary><b>A phone can't open LANDrop</b></summary>
+
+Make sure the phone is on the same Wi-Fi as the Mac, not on mobile data. On Android Chrome, turn off **Settings → Privacy and security → Always use secure connections**: LANDrop runs over plain HTTP on your local network, and that setting blocks it.
+</details>
+
+<details>
+<summary><b>LANDrop stops working when my Mac sleeps</b></summary>
+
+A sleeping Mac can't answer other devices. From the menu bar icon, turn on **Keep Mac Awake While Plugged In**. Closing a laptop lid still puts it to sleep.
+</details>
+
+<details>
+<summary><b>"Another copy of LANDrop is using port 4545"</b></summary>
+
+A LANDrop server is already running, for example one started from Terminal. Quit it, then open LANDrop again.
+</details>
+
+## How it works
+
+```
+ ┌──────────────┐      Wi-Fi / LAN (HTTP + WebSocket, port 4545)      ┌──────────────┐
+ │   iPhone     │ ◄──────────────────────────┐   ┌───────────────────► │   Android    │
+ └──────────────┘                            │   │                     └──────────────┘
+                                       ┌─────┴───┴─────┐
+                                       │  Mac (host)   │  chat history + files
+                                       │  LANDrop app  │  stored in ~/.landrop
+                                       └─────┬───┬─────┘
+ ┌──────────────┐                            │   │                     ┌──────────────┐
+ │   Windows    │ ◄──────────────────────────┘   └───────────────────► │     iPad     │
+ └──────────────┘                                                      └──────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The Mac app embeds a small server that serves the web app and relays chat in real time. Guests only need a browser. Nothing is routed through the internet.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+This is an npm workspaces monorepo built with [Turborepo](https://turbo.build).
 
-## Learn More
+| Path | What it is |
+|---|---|
+| `apps/desktop` | Electron menu bar app for macOS; embeds the LAN server. |
+| `apps/lan-server` | Fastify server: HTTP API, WebSocket chat, file storage and live streaming. |
+| `apps/web` | Next.js client (static export) that every device opens in its browser. |
+| `packages/protocol` | Shared types and constants used by the server and clients. |
+| `site` | The marketing website, deployed to [landdrop.vercel.app](https://landdrop.vercel.app). |
 
-To learn more about Next.js, take a look at the following resources:
+## Development
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Requires Node.js 22 or newer.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm install
 
-## Deploy on Vercel
+npm run dev        # web app on :3000 plus the LAN server on :4545, with reload
+npm test           # server tests (Vitest)
+npm run typecheck  # TypeScript across all workspaces
+npm run build      # build all workspaces
+npm run dist:mac   # package the Mac app into a .dmg (apps/desktop/release)
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+To run the server headless without the Mac app, build the web app and start it:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run build
+npm start --workspace @landrop/lan-server
+```
+
+| Environment variable | Default | Purpose |
+|---|---|---|
+| `LANDROP_PORT` | `4545` | Port the server listens on. |
+| `LANDROP_DATA_DIR` | `~/.landrop` | Where chat history and attachments are stored. |
+| `LANDROP_WEB_DIR` | `apps/web/out` | Location of the built web app. |
+
+## Roadmap
+
+- Folder sharing, browsable inside the app
+- Private groups with chosen devices
+- Voice messages
+- Rich media viewer for photos, videos and GIFs
+- Emoji and GIF picker
+- Message info and read receipts
+- Chat bubble customisation
+- Separate history per Wi-Fi network
+- Shareable QR code and invite link
+- Redesigned app and Mac menu bar actions
+
+## Author
+
+Built by [Dilnawaz Khan](https://github.com/engineer-dilnawaz).

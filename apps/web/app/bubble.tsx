@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { isAvailable, previewKind, type Attachment, type Message } from "@landrop/protocol";
 import type { Progress } from "./landrop";
 import { SparkleField } from "./sparkle-field";
@@ -17,6 +17,7 @@ import {
   UploadProgress,
   colourFor,
   copyText,
+  emojiOnlyCount,
   formatBytes,
   formatTime,
   linkify,
@@ -59,6 +60,7 @@ export function Bubble({
   onLongPress,
   onQuoteTap,
   onOpenMedia,
+  avatar,
 }: {
   message: Message;
   nameOf: (id: string | undefined, fallback: string) => string;
@@ -75,6 +77,8 @@ export function Bubble({
   /** Press and hold, right-click, or the ⌄ button: the message's actions. */
   onLongPress: () => void;
   onQuoteTap: (id: string) => void;
+  /** Others' messages: their picture beside the first of a run, or the space it takes. */
+  avatar?: ReactNode;
 }) {
   const a = message.attachment;
   const senderName = nameOf(message.senderId, message.senderName);
@@ -86,6 +90,9 @@ export function Bubble({
   const [videoLength, setVideoLength] = useState<number>();
   const [expanded, setExpanded] = useState(false);
   const shortText = message.text && !expanded ? truncateLongText(message.text) : undefined;
+  /** Like WhatsApp, a message of just one to three emoji shows them big; more emoji a step up from text. */
+  const emojis = message.text ? emojiOnlyCount(message.text) : 0;
+  const emojiSize = emojis === 0 ? "" : (["text-[48px] leading-[58px]", "text-[40px] leading-[50px]", "text-[34px] leading-[44px]"][emojis - 1] ?? "text-[24px] leading-8");
   // Previews only once the host has verified the bytes (or live from the sender); formats this browser can't show fall back to the file card.
   const preview = a && isAvailable(a) && !previewFailed ? previewKind(a) : undefined;
   /** Photos and videos fill the bubble; voice messages sit inside it like text. */
@@ -150,11 +157,12 @@ export function Bubble({
     >
       <span
         aria-hidden
-        className="absolute left-0 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-bar text-muted shadow"
+        className="pointer-events-none absolute left-0 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-bar text-muted shadow"
         style={{ opacity: dx / SWIPE_TRIGGER_PX, transform: `translateY(-50%) scale(${dx >= SWIPE_TRIGGER_PX ? 1.15 : 1})` }}
       >
         <ReplyIcon size={18} />
       </span>
+      {avatar && <span className="self-start">{avatar}</span>}
       <div
         {...handlers}
         aria-label={own ? undefined : `${senderName}:`}
@@ -197,8 +205,8 @@ export function Bubble({
         )}
         {message.text && (
           // WhatsApp-style time: floated into the last line when it fits, otherwise wrapped onto its own line.
-          <p className={`whitespace-pre-wrap wrap-break-word ${media ? "px-1.5 pt-1" : ""}`}>
-            {linkify(shortText ?? message.text, own)}
+          <p className={`whitespace-pre-wrap wrap-break-word ${media ? "px-1.5 pt-1" : ""} ${emojiSize}`}>
+            {linkify(shortText ?? message.text, own, emojis === 0)}
             {shortText !== undefined && (
               <>
                 {"… "}

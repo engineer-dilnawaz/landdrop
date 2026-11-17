@@ -812,6 +812,11 @@ export default function LanDrop() {
               )
             }
             onOpenMedia={(m) => setViewing(m.id)}
+            onOpenSender={(deviceId) => {
+              if (!selfId || deviceId === selfId) return;
+              // Their phone or computer as a whole, talking to whichever of its browsers is open now.
+              openChat(people.find((p) => p.deviceIds.includes(deviceId))?.id ?? privateChatId(selfId, deviceId));
+            }}
             onReply={setReplyTo}
             onLongPress={setSelected}
           />
@@ -941,6 +946,7 @@ function messagePreview(m: Message): string {
   const a = m.attachment!;
   const kind = previewKind(a);
   if (kind === "audio") return a.name.startsWith("Voice message") ? "🎤 Voice message" : `🎵 ${a.name}`;
+  if (a.mimeType === "image/gif") return "👾 GIF";
   return kind === "image" ? "📷 Photo" : kind === "video" ? "🎥 Video" : `📄 ${a.name}`;
 }
 

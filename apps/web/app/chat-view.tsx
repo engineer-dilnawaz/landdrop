@@ -4,9 +4,11 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { MAX_ATTACHMENT_BYTES, type Message } from "@landrop/protocol";
 import { Bubble, TIME_GAP_MS } from "./bubble";
 import { ChatAvatar, type ChatKind } from "./chat-list";
+import { ExpressionPanel } from "./expressions";
 import { RecorderFallback, RecordingBar, canRecordHere, useVoiceRecorder } from "./voice";
 import type { Progress } from "./landrop";
 import {
+  Avatar,
   BackIcon,
   CameraIcon,
   CloseIcon,
@@ -22,6 +24,7 @@ import {
   SHEET_ITEM,
   SendIcon,
   Sheet,
+  SmileyIcon,
   colourFor,
   formatBytes,
   formatDay,
@@ -60,6 +63,7 @@ export function ChatView({
   onLeaveGroup,
   onClearChat,
   onOpenMedia,
+  onOpenSender,
   onReply,
   onLongPress,
 }: {
@@ -92,6 +96,8 @@ export function ChatView({
   /** Clear the group or delete a private chat (asks first). */
   onClearChat: () => void;
   onOpenMedia: (message: Message) => void;
+  /** Opens the private chat with whoever sent a message. */
+  onOpenSender: (deviceId: string) => void;
   onReply: (message: Message) => void;
   onLongPress: (message: Message) => void;
 }) {
@@ -104,6 +110,27 @@ export function ChatView({
   /** Whether the view stays at the newest message as the chat grows: until the user scrolls up. */
   const atBottomRef = useRef(true);
   const { text, files, replyTo } = composer;
+  /** The chat the emoji and GIF panel is open in; switching chats leaves it closed. */
+  const [expressionsChat, setExpressionsChat] = useState<string>();
+  const expressions = expressionsChat === chat.id;
+  const setExpressions = (open: boolean) => setExpressionsChat(open ? chat.id : undefined);
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  /** Where emoji go: the cursor's last place in the message, kept while the panel has focus. */
+  const caretRef = useRef<{ chatId: string; start: number; end: number }>(undefined);
+  const touch = () => matchMedia("(pointer: coarse)").matches;
+
+  function insertEmoji(emoji: string) {
+    const caret = caretRef.current?.chatId === chat.id ? caretRef.current : undefined;
+    const { start, end } = caret ?? { start: text.length, end: text.length };
+    composer.setText(text.slice(0, start) + emoji + text.slice(end));
+    caretRef.current = { chatId: chat.id, start: start + emoji.length, end: start + emoji.length };
+    // On computers the cursor goes back into the field after the emoji; phones keep the keyboard down.
+    if (!touch())
+      requestAnimationFrame(() => {
+        fieldRef.current?.focus();
+        fieldRef.current?.setSelectionRange(start + emoji.length, start + emoji.length);
+      });
+  }
 
   // Open at the newest message, and follow new ones as they arrive, like a chat app.
   useLayoutEffect(() => {
@@ -223,6 +250,26 @@ export function ChatView({
                       onLongPress(m);
                     }}
                     onQuoteTap={showMessage}
+                    // Like WhatsApp: the sender's picture beside the first message of their run, the rest lined up under it.
+                    avatar={
+                      own ? undefined : startsRun ? (
+                        // In a group it opens a private chat with them; in a private chat you're already there.
+                        chat.kind !== "private" && m.senderId ? (
+                          <button
+                            onClick={() => onOpenSender(m.senderId!)}
+                            aria-label={`Message ${nameOf(m.senderId, m.senderName)}`}
+                            title={`Message ${nameOf(m.senderId, m.senderName)}`}
+                            className="block rounded-full transition-opacity hover:opacity-80"
+                          >
+                            <Avatar name={nameOf(m.senderId, m.senderName)} seed={m.senderId} />
+                          </button>
+                        ) : (
+                          <Avatar name={nameOf(m.senderId, m.senderName)} seed={m.senderId ?? m.senderName} />
+                        )
+                      ) : (
+                        <span className="block size-8" />
+                      )
+                    }
                   />
                 </div>
               );
@@ -268,6 +315,16 @@ export function ChatView({
               ))}
             </ul>
           )}
+          {expressions && !recorder.active && (
+            <ExpressionPanel
+              onEmoji={insertEmoji}
+              onGif={(gif) => {
+                setExpressions(false);
+                composer.send([gif]);
+              }}
+              onError={composer.notice}
+            />
+          )}
           <div className="flex items-end gap-1.5">
             {recorder.active ? (
               <RecordingBar
@@ -281,13 +338,33 @@ export function ChatView({
             ) : (
               <>
                 <AttachMenu onFiles={composer.chooseFiles} />
-                <div className="flex min-h-[42px] flex-1 items-end rounded-lg bg-panel px-3 md:bg-field dark:bg-field">
+                <div className="flex min-h-[42px] flex-1 items-end rounded-lg bg-panel pr-3 pl-1 md:bg-field dark:bg-field">
+                  <button
+                    onClick={() => {
+                      // On phones the panel takes the keyboard's place, like WhatsApp.
+                      if (!expressions && touch()) fieldRef.current?.blur();
+                      setExpressions(!expressions);
+                    }}
+                    aria-label={expressions ? "Close emoji and GIFs" : "Emoji and GIFs"}
+                    aria-expanded={expressions}
+                    title="Emoji and GIFs"
+                    className={`flex size-[42px] shrink-0 items-center justify-center rounded-full ${expressions ? "text-accent" : "text-muted hover:text-foreground"}`}
+                  >
+                    <SmileyIcon />
+                  </button>
                   <textarea
+                    ref={fieldRef}
                     value={text}
                     onChange={(e) => composer.setText(e.target.value)}
+                    onSelect={(e) => {
+                      caretRef.current = { chatId: chat.id, start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd };
+                    }}
+                    // Typing on a phone brings the keyboard back in place of the panel.
+                    onFocus={() => touch() && setExpressions(false)}
                     onKeyDown={(e) => {
                       // On phones Return adds a line, like WhatsApp; on computers Enter sends.
-                      if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) {
+                      if (e.key === "Escape" && expressions) setExpressions(false);
+                      if (e.key === "Enter" && !e.shiftKey && !touch()) {
                         e.preventDefault();
                         composer.send();
                       }

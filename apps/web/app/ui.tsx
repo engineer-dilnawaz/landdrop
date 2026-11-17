@@ -356,6 +356,15 @@ export const ShareIcon = ({ size = 24 }: IconProps) => (
   </svg>
 );
 
+export const SmileyIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" />
+    <circle cx="9" cy="10" r=".9" fill="currentColor" />
+    <circle cx="15" cy="10" r=".9" fill="currentColor" />
+  </svg>
+);
+
 export const MicIcon = ({ size = 24 }: IconProps) => (
   <svg {...sized(size)}>
     <rect x="9" y="3" width="6" height="11" rx="3" />
@@ -540,6 +549,20 @@ export const Logo = ({ size = 72 }: IconProps) => (
 const LONG_TEXT_CHARS = 600;
 const LONG_TEXT_LINES = 12;
 
+const EMOJI = /^(\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Component}|\u200d|\ufe0f)+$/u;
+
+/** How many emoji a message is made of, when it's nothing but emoji (spaces allowed); otherwise 0. */
+export function emojiOnlyCount(text: string): number {
+  let count = 0;
+  for (const { segment } of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)) {
+    if (/^\s+$/.test(segment)) continue;
+    // Digits and # are emoji components too; on their own they're just text.
+    if (!EMOJI.test(segment) || /^[\d#*]$/.test(segment)) return 0;
+    count++;
+  }
+  return count;
+}
+
 /** Returns the shortened text when a message is long enough to collapse, else undefined. */
 export function truncateLongText(text: string): string | undefined {
   const lines = text.split("\n");
@@ -571,7 +594,11 @@ export function formatDay(at: number): string {
   return date.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
 }
 
-export function linkify(text: string, own: boolean) {
+/** A run of emoji, with skin tones, flags and joined sequences kept whole. */
+const EMOJI_RUN = /((?:\p{Extended_Pictographic}|\p{Regional_Indicator})(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|\u200d|\ufe0f|\u20e3)*)/u;
+
+/** Turns links into links, and sets emoji a little bigger than the text around them, like WhatsApp. */
+export function linkify(text: string, own: boolean, biggerEmoji = true) {
   return text.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
     i % 2 === 1 ? (
       <a
@@ -583,6 +610,16 @@ export function linkify(text: string, own: boolean) {
       >
         {part}
       </a>
+    ) : biggerEmoji ? (
+      part.split(EMOJI_RUN).map((piece, j) =>
+        j % 2 === 1 ? (
+          <span key={`${i}-${j}`} className="align-[-0.08em] text-[1.3em] leading-none">
+            {piece}
+          </span>
+        ) : (
+          piece
+        ),
+      )
     ) : (
       part
     ),

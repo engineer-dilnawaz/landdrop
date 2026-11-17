@@ -1,11 +1,12 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, release } from "node:os";
 import { join } from "node:path";
 import { joinUrls } from "@landrop/lan-server/app";
 import { startHost } from "@landrop/lan-server/host";
 import { DEFAULT_LAN_PORT } from "@landrop/protocol";
-import { BrowserWindow, Menu, Tray, app, dialog, powerMonitor, powerSaveBlocker, shell } from "electron";
+import { BrowserWindow, Menu, Tray, app, clipboard, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell, type MenuItemConstructorOptions } from "electron";
 import QRCode from "qrcode";
+import { MAX_SCREENSHOTS, parseReport, saveReport } from "./reports";
 
 /**
  * LANDrop for Mac: runs the LANDrop host from the menu bar, so phones on this Wi-Fi can reach it
@@ -13,11 +14,14 @@ import QRCode from "qrcode";
  * from idling to sleep while plugged in.
  */
 
-const PORT = DEFAULT_LAN_PORT;
+// Overridable like the terminal server's, so a development build can run beside the installed app.
+const PORT = Number(process.env.LANDROP_PORT ?? DEFAULT_LAN_PORT);
 // The same place `npm start` uses, so history is shared whichever way LANDrop runs. Each network gets its own folder in it.
-const DATA_DIR = join(homedir(), ".landrop");
+const DATA_DIR = process.env.LANDROP_DATA_DIR ?? join(homedir(), ".landrop");
 const WEB_DIR = app.isPackaged ? join(process.resourcesPath, "web") : join(__dirname, "../../web/out");
 const ICON = join(__dirname, "../assets/trayTemplate.png");
+const REPO = "engineer-dilnawaz/landdrop";
+const WEBSITE = "https://landdrop.vercel.app";
 
 interface Settings {
   askedAboutLogin: boolean;
@@ -29,10 +33,12 @@ let settings: Settings = { askedAboutLogin: false, keepAwake: false };
 let tray: Tray | undefined;
 let qrWindow: BrowserWindow | undefined;
 let chatWindow: BrowserWindow | undefined;
+let reportWindow: BrowserWindow | undefined;
 let awakeBlocker: number | undefined;
 
 // Settings and the chat window's storage live in "Application Support/LANDrop", not under the package's name.
-app.setPath("userData", join(app.getPath("appData"), "LANDrop"));
+// A development build gets its own, so it doesn't share settings or the single-instance lock with the installed app.
+app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? "LANDrop" : "LANDrop Dev"));
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -68,6 +74,28 @@ async function start() {
   }
   app.on("will-quit", () => void server.close());
 
+  app.setAboutPanelOptions({
+    applicationName: "LANDrop",
+    applicationVersion: app.getVersion(),
+    version: "",
+    copyright: "© 2026 LANDrop",
+    credits: "Share messages and files with every device on your Wi-Fi.",
+  });
+  // Rebuilt on focus, so its checkboxes match changes made from the menu bar icon.
+  app.on("browser-window-focus", () => Menu.setApplicationMenu(appMenu()));
+  Menu.setApplicationMenu(appMenu());
+  ipcMain.handle("report:submit", (event, input) => {
+    // Only the report form may save reports.
+    if (event.sender !== reportWindow?.webContents) return false;
+    const report = parseReport(input);
+    if (!report) return false;
+    saveReport(join(app.getPath("userData"), "reports.db"), report, {
+      appVersion: app.getVersion(),
+      osVersion: `macOS ${process.getSystemVersion()} (Darwin ${release()})`,
+    });
+    return true;
+  });
+
   tray = new Tray(ICON);
   tray.setToolTip("LANDrop");
   // Built on every click, so the address and checkboxes are always current.
@@ -91,9 +119,32 @@ function menu(): Menu {
       label: urls.length ? `Running at ${urls[0].replace("http://", "")}` : "Not connected to a network",
       enabled: false,
     },
-    { label: "Show QR Code to Join…", click: () => void showQr() },
-    { label: "Open LANDrop", click: openChat },
+    ...quickActions(),
     { type: "separator" },
+    ...optionItems(),
+    { type: "separator" },
+    { label: "About LANDrop", click: () => app.showAboutPanel() },
+    { label: "Check for Updates…", click: () => void checkForUpdates() },
+    { type: "separator" },
+    { label: "Quit LANDrop", click: () => app.quit() },
+  ]);
+}
+
+function quickActions(): MenuItemConstructorOptions[] {
+  return [
+    { label: "Open LANDrop", accelerator: "CmdOrCtrl+O", click: openChat },
+    { label: "Show QR Code to Join…", accelerator: "CmdOrCtrl+J", click: () => void showQr() },
+    {
+      label: "Copy Join Address",
+      accelerator: "CmdOrCtrl+Shift+C",
+      enabled: joinUrls(PORT).length > 0,
+      click: () => clipboard.writeText(joinUrls(PORT)[0]),
+    },
+  ];
+}
+
+function optionItems(): MenuItemConstructorOptions[] {
+  return [
     {
       label: "Start at Login",
       type: "checkbox",
@@ -112,9 +163,106 @@ function menu(): Menu {
         updateKeepAwake();
       },
     },
-    { type: "separator" },
-    { label: "Quit LANDrop", click: () => app.quit() },
+  ];
+}
+
+/** The menu at the top of the screen, shown while a LANDrop window is open. */
+function appMenu(): Menu {
+  return Menu.buildFromTemplate([
+    {
+      label: "LANDrop",
+      submenu: [
+        { label: "About LANDrop", click: () => app.showAboutPanel() },
+        { label: "Check for Updates…", click: () => void checkForUpdates() },
+        { type: "separator" },
+        ...optionItems(),
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { label: "Quit LANDrop", accelerator: "CmdOrCtrl+Q", click: () => app.quit() },
+      ],
+    },
+    { label: "File", submenu: [...quickActions(), { type: "separator" }, { role: "close" }] },
+    { role: "editMenu" },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        ...(app.isPackaged ? [] : [{ role: "toggleDevTools" } as const]),
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    { role: "windowMenu" },
+    {
+      role: "help",
+      submenu: [
+        { label: "LANDrop Website", click: () => void shell.openExternal(WEBSITE) },
+        { label: "Release Notes", click: () => void shell.openExternal(`https://github.com/${REPO}/releases`) },
+        { label: "Report a Problem…", click: () => void showReportForm() },
+      ],
+    },
   ]);
+}
+
+/**
+ * LANDrop lives in the menu bar, with no Dock icon or app menu. While one of its windows is open it
+ * becomes a regular app, so the window can be found with Cmd-Tab and the menu at the top of the screen.
+ */
+function trackWindow(window: BrowserWindow) {
+  void app.dock?.show();
+  window.on("closed", () => {
+    if (BrowserWindow.getAllWindows().length === 0) app.dock?.hide();
+  });
+}
+
+/** Asks GitHub for the latest release, only when the user chooses to; LANDrop itself never needs the internet. */
+async function checkForUpdates() {
+  let latest: { tag_name: string; html_url: string };
+  try {
+    const response = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+      headers: { Accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
+    latest = (await response.json()) as typeof latest;
+  } catch {
+    await dialog.showMessageBox({
+      type: "warning",
+      message: "Couldn't check for updates",
+      detail: "Checking needs an internet connection. LANDrop itself keeps working on your Wi-Fi without one.",
+    });
+    return;
+  }
+  const version = latest.tag_name.replace(/^v/, "");
+  if (!isNewer(version, app.getVersion())) {
+    await dialog.showMessageBox({ message: "LANDrop is up to date", detail: `You have the latest version, ${app.getVersion()}.` });
+    return;
+  }
+  const { response } = await dialog.showMessageBox({
+    message: `LANDrop ${version} is available`,
+    detail: `You have ${app.getVersion()}. Download the new version, quit LANDrop, then drag the new LANDrop into Applications.`,
+    buttons: ["Download", "Later"],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (response === 0) void shell.openExternal(latest.html_url);
+}
+
+/** Compares dotted version numbers, like 0.1.10 and 0.1.9. */
+function isNewer(candidate: string, current: string): boolean {
+  const a = candidate.split(".").map(Number);
+  const b = current.split(".").map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  }
+  return false;
 }
 
 async function askAboutLogin() {
@@ -156,6 +304,7 @@ async function showQr() {
   const qr = urls[0] && (await QRCode.toDataURL(urls[0], { margin: 1, width: 480, errorCorrectionLevel: "M" }));
   qrWindow = new BrowserWindow({ width: 340, height: 540, resizable: false, title: "Join LANDrop", show: false });
   qrWindow.on("closed", () => (qrWindow = undefined));
+  trackWindow(qrWindow);
   qrWindow.once("ready-to-show", () => {
     qrWindow?.show();
     app.focus({ steal: true });
@@ -171,6 +320,7 @@ function openChat() {
   }
   chatWindow = new BrowserWindow({ width: 1100, height: 760, title: "LANDrop" });
   chatWindow.on("closed", () => (chatWindow = undefined));
+  trackWindow(chatWindow);
   // Links to other sites open in the browser, not inside LANDrop.
   chatWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);
@@ -178,6 +328,151 @@ function openChat() {
   });
   void chatWindow.loadURL(`http://localhost:${PORT}/`);
   app.focus({ steal: true });
+}
+
+async function showReportForm() {
+  if (reportWindow) {
+    reportWindow.show();
+    app.focus({ steal: true });
+    return;
+  }
+  reportWindow = new BrowserWindow({
+    width: 460,
+    height: 680,
+    resizable: false,
+    title: "Report a Problem",
+    show: false,
+    webPreferences: { preload: join(__dirname, "preload.cjs") },
+  });
+  reportWindow.on("closed", () => (reportWindow = undefined));
+  trackWindow(reportWindow);
+  reportWindow.once("ready-to-show", () => {
+    reportWindow?.show();
+    app.focus({ steal: true });
+  });
+  await reportWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(reportPage())}`);
+}
+
+/** The report form. Everything typed goes through the preload's submitReport, which the main process checks. */
+function reportPage(): string {
+  const about = `LANDrop ${app.getVersion()} · macOS ${process.getSystemVersion()}`;
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Report a Problem</title>
+<style>
+  :root { color-scheme: light dark; --muted: #6e6e73; --field: #fff; --line: #d2d2d7; --accent: #00a884; }
+  @media (prefers-color-scheme: dark) { :root { --muted: #98989d; --field: #2c2c2e; --line: #3a3a3c; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 22px 24px; font: 13px -apple-system, system-ui, sans-serif; background: Canvas; color: CanvasText; }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  p { color: var(--muted); margin: 0; line-height: 1.4; }
+  label { display: block; margin-top: 16px; font-weight: 500; }
+  .kinds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; padding: 3px; border-radius: 9px; background: var(--line); }
+  .kinds input { position: absolute; opacity: 0; }
+  .kinds span { display: block; padding: 5px 0; text-align: center; border-radius: 7px; cursor: default; font-weight: 400; }
+  .kinds input:checked + span { background: var(--field); font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+  .kinds input:focus-visible + span { outline: 2px solid var(--accent); }
+  input[type=text], input[type=email], textarea { display: block; width: 100%; margin-top: 6px; padding: 7px 9px; font: inherit; color: inherit;
+    background: var(--field); border: 1px solid var(--line); border-radius: 7px; outline: none; }
+  input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  textarea { height: 150px; resize: none; }
+  .about { margin-top: 14px; font-size: 12px; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  button { font: inherit; padding: 6px 16px; border-radius: 7px; border: 1px solid var(--line); background: var(--field); color: inherit; }
+  button[type=submit] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+  button:disabled { opacity: .5; }
+  .shots { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
+  .shot { position: relative; width: 72px; height: 54px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+  .shot img { width: 100%; height: 100%; object-fit: cover; }
+  .shot button { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 0;
+    background: rgba(0,0,0,.6); color: #fff; font-size: 12px; line-height: 18px; }
+  .hint { font-size: 12px; }
+  body.dragging form { outline: 2px dashed var(--accent); outline-offset: -8px; border-radius: 10px; }
+  .error { color: #e5484d; margin-top: 10px; display: none; }
+  .done { display: none; text-align: center; padding-top: 140px; }
+  .done h1 { margin-bottom: 8px; }
+  body.sent form { display: none; } body.sent .done { display: block; }
+</style></head><body>
+  <form id="form">
+    <h1>Report a Problem</h1>
+    <p>Tell us what went wrong or what you'd like LANDrop to do.</p>
+    <div class="kinds" role="radiogroup" aria-label="Type">
+      <label style="margin:0"><input type="radio" name="kind" value="problem" checked><span>Problem</span></label>
+      <label style="margin:0"><input type="radio" name="kind" value="idea"><span>Idea</span></label>
+      <label style="margin:0"><input type="radio" name="kind" value="other"><span>Other</span></label>
+    </div>
+    <label>Summary<input type="text" name="summary" maxlength="200" required placeholder="Photos from my phone don't arrive" autofocus></label>
+    <label>What happened<textarea name="details" maxlength="5000" placeholder="What you did, what you expected, and what happened instead."></textarea></label>
+    <label>Email <span style="color:var(--muted);font-weight:400">(optional, if you'd like a reply)</span><input type="email" name="contact" maxlength="200" placeholder="you@example.com"></label>
+    <label>Screenshots <span style="color:var(--muted);font-weight:400">(optional, up to ${MAX_SCREENSHOTS})</span></label>
+    <div class="shots" id="shots">
+      <button type="button" id="attach">Attach Screenshot…</button>
+      <input type="file" id="picker" accept="image/png,image/jpeg,image/gif,image/webp,image/heic" multiple hidden>
+    </div>
+    <p class="hint">You can also paste a screenshot or drop one here.</p>
+    <p class="about">Sent with the report: ${about}</p>
+    <p class="error" id="error">The report couldn't be saved. Check the summary, and that each screenshot is an image under 10 MB.</p>
+    <div class="actions">
+      <button type="button" onclick="window.close()">Cancel</button>
+      <button type="submit" id="send">Send Report</button>
+    </div>
+  </form>
+  <div class="done">
+    <h1>Thanks for the report</h1>
+    <p>It's saved on this Mac.</p>
+    <div class="actions" style="justify-content:center"><button type="button" onclick="window.close()">Close</button></div>
+  </div>
+  <script>
+    const MAX = ${MAX_SCREENSHOTS};
+    const form = document.getElementById("form");
+    const shots = document.getElementById("shots");
+    const picker = document.getElementById("picker");
+    const attach = document.getElementById("attach");
+    let screenshots = [];
+
+    function render() {
+      shots.querySelectorAll(".shot").forEach((el) => el.remove());
+      screenshots.forEach((shot, i) => {
+        const tile = document.createElement("div");
+        tile.className = "shot";
+        const img = document.createElement("img");
+        img.src = shot.url;
+        img.alt = shot.name;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "×";
+        remove.setAttribute("aria-label", "Remove " + shot.name);
+        remove.onclick = () => { URL.revokeObjectURL(shot.url); screenshots.splice(i, 1); render(); };
+        tile.append(img, remove);
+        shots.insertBefore(tile, attach);
+      });
+      attach.hidden = screenshots.length >= MAX;
+    }
+    async function add(files) {
+      for (const file of files) {
+        if (screenshots.length >= MAX || !file.type.startsWith("image/")) continue;
+        screenshots.push({ name: file.name || "Pasted screenshot.png", type: file.type, data: new Uint8Array(await file.arrayBuffer()), url: URL.createObjectURL(file) });
+      }
+      render();
+    }
+    attach.onclick = () => picker.click();
+    picker.onchange = () => { add([...picker.files]); picker.value = ""; };
+    document.addEventListener("paste", (e) => add([...e.clipboardData.files]));
+    document.addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("dragging"); });
+    document.addEventListener("dragleave", (e) => { if (!e.relatedTarget) document.body.classList.remove("dragging"); });
+    document.addEventListener("drop", (e) => { e.preventDefault(); document.body.classList.remove("dragging"); add([...e.dataTransfer.files]); });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      data.screenshots = screenshots.map(({ name, type, data }) => ({ name, type, data }));
+      document.getElementById("send").disabled = true;
+      const ok = await window.landrop.submitReport(data).catch(() => false);
+      document.getElementById("send").disabled = false;
+      if (ok) document.body.classList.add("sent");
+      else document.getElementById("error").style.display = "block";
+    });
+  </script>
+</body></html>`;
 }
 
 /** The QR window's page. Addresses are this Mac's own IPv4 addresses, so nothing here needs escaping. */

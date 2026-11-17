@@ -1,17 +1,18 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { isAvailable, previewKind, type Message } from "@landrop/protocol";
+import { isAvailable, previewKind, type Attachment, type Message } from "@landrop/protocol";
 import type { Progress } from "./landrop";
 import { SparkleField } from "./sparkle-field";
 import {
-  ACTION_CLASS,
-  Avatar,
-  CopyButton,
-  FileIcon,
+  AlertIcon,
+  ChevronIcon,
+  ClockIcon,
   ReplyIcon,
   SaveIcon,
+  TickIcon,
   UploadProgress,
+  colourFor,
   formatBytes,
   formatTime,
   linkify,
@@ -37,8 +38,8 @@ export function Bubble({
   message,
   nameOf,
   own,
-  showAvatar,
-  tail,
+  showSender,
+  first,
   progress,
   downloadUrl,
   previewUrl,
@@ -50,14 +51,16 @@ export function Bubble({
   message: Message;
   nameOf: (id: string | undefined, fallback: string) => string;
   own: boolean;
-  /** Group chats show the sender's avatar; private chats don't need it. */
-  showAvatar: boolean;
-  tail: boolean;
+  /** Group chats name the sender at the top of their run of messages, like WhatsApp. */
+  showSender: boolean;
+  /** First message of a run: it gets the tail. */
+  first: boolean;
   progress?: Progress;
   downloadUrl: string;
   previewUrl: string;
   onOpenImage: () => void;
   onReply: () => void;
+  /** Press and hold, right-click, or the ⌄ button: the message's actions. */
   onLongPress: () => void;
   onQuoteTap: (id: string) => void;
 }) {
@@ -72,18 +75,9 @@ export function Bubble({
   const shortText = message.text && !expanded ? truncateLongText(message.text) : undefined;
   // Previews only once the host has verified the bytes (or live from the sender); formats this browser can't show fall back to the file card.
   const preview = a && isAvailable(a) && !previewFailed ? previewKind(a) : undefined;
-  const time = formatTime(message.createdAt);
-  const timeTone = own ? "text-white/70" : "text-muted";
-  // Messages-style corners: the last bubble of a run gets the tighter "tail" corner.
-  const shape = own
-    ? tail
-      ? "rounded-[18px] rounded-br-[4px]"
-      : "rounded-[18px]"
-    : tail
-      ? "rounded-[18px] rounded-bl-[4px]"
-      : "rounded-[18px]";
+  const meta = <Meta at={message.createdAt} own={own} status={a?.status} />;
 
-  // Swipe right to reply; press and hold for the remove sheet. Vertical drags stay with the page scroll.
+  // Swipe right to reply; press and hold for the actions. Vertical drags stay with the page scroll.
   const handlers = {
     onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
@@ -134,128 +128,133 @@ export function Bubble({
     },
   };
 
-  const actions = (
-    <div className="flex shrink-0 items-center self-center text-muted">
-      {message.text && <CopyButton text={message.text} />}
-      {a && isAvailable(a) && (
-        <a
-          href={downloadUrl}
-          download={a.name}
-          className={ACTION_CLASS}
-          aria-label={`Save ${a.name}`}
-          title={a.sha256 ? `Save · SHA-256 ${a.sha256}` : "Save · streamed live from the sender"}
-        >
-          <SaveIcon />
-        </a>
-      )}
-    </div>
-  );
-
   return (
-    <div id={`message-${message.id}`} className={`relative flex items-end gap-1 ${own ? "justify-end" : "justify-start"}`}>
+    <div id={`message-${message.id}`} className={`relative flex ${own ? "justify-end" : "justify-start"}`}>
       <span
         aria-hidden
-        className="absolute left-0 top-1/2 -translate-y-1/2 text-muted"
+        className="absolute left-0 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-bar text-muted shadow"
         style={{ opacity: dx / SWIPE_TRIGGER_PX, transform: `translateY(-50%) scale(${dx >= SWIPE_TRIGGER_PX ? 1.15 : 1})` }}
       >
-        <ReplyIcon />
+        <ReplyIcon size={18} />
       </span>
-      {!own && showAvatar && (
-        // The sender's avatar marks the end of their run of messages; earlier bubbles keep the space so they line up.
-        <div className="w-7 shrink-0" title={senderName}>
-          {tail && <Avatar name={senderName} size="small" />}
-        </div>
-      )}
-      {own && actions}
       <div
         {...handlers}
         aria-label={own ? undefined : `${senderName}:`}
         style={{ transform: dx ? `translateX(${dx}px)` : undefined }}
         // "isolate" lets a live file's sparkles sit between the bubble colour and its content.
-        className={`relative isolate max-w-[72%] touch-pan-y text-[16px] leading-[21px] select-none [-webkit-touch-callout:none] [-webkit-user-select:none] ${
+        className={`group relative isolate max-w-[85%] touch-pan-y rounded-[7.5px] text-[14.5px] leading-[19px] shadow-[0_1px_.5px_rgba(11,20,26,.13)] select-none [-webkit-touch-callout:none] [-webkit-user-select:none] md:max-w-[65%] ${
           dx ? "" : "transition-transform"
-        } ${shape} ${own ? "bg-ios-blue text-white" : "bg-bubble-other text-foreground"} ${
-          // Media sits inside the bubble with a thin frame, like WhatsApp, leaving room for the time below it.
-          // Live media gets a wider frame so its sparkles show around it.
-          preview ? (a?.status === "live" ? "p-2" : "p-1") : "px-3 py-[7px]"
+        } ${own ? "bg-bubble-out text-bubble-out-ink" : "bg-bubble-in text-foreground"} ${
+          first ? (own ? "tail-out rounded-tr-none" : "tail-in rounded-tl-none") : ""
+        } ${
+          // Media fills the bubble with a thin frame, like WhatsApp; live media gets a wider one so its sparkles show.
+          preview ? (a?.status === "live" ? "p-2" : "p-[3px]") : "px-[9px] pb-2 pt-1.5"
         }`}
       >
+        {/* WhatsApp's ⌄ on hover: the same actions as press and hold. */}
+        <button
+          onClick={onLongPress}
+          aria-label="Message actions"
+          className="absolute right-1 top-1 z-10 hidden size-6 items-center justify-center rounded-full bg-inherit text-muted opacity-0 shadow-[-6px_0_8px_var(--bubble-in)] transition-opacity group-hover:opacity-100 focus-visible:opacity-100 md:flex"
+          style={own ? { boxShadow: "-6px 0 8px var(--bubble-out)" } : undefined}
+        >
+          <ChevronIcon />
+        </button>
+        {showSender && (
+          <p className={`text-[13px] font-medium ${preview ? "px-1.5 pb-1 pt-0.5" : "pb-0.5"}`} style={{ color: colourFor(message.senderId ?? senderName) }}>
+            {senderName}
+          </p>
+        )}
         {message.replyTo && (
           <button
             onClick={() => onQuoteTap(message.replyTo!.id)}
-            className={`mb-1 block w-full rounded-lg border-l-[3px] px-2 py-1 text-left text-[13px] leading-[17px] ${
-              own ? "border-white/70 bg-white/15" : "border-ios-blue bg-background/50"
-            }`}
+            className="mb-1 block w-full overflow-hidden rounded-md border-l-4 bg-black/5 px-2 py-1.5 text-left text-[13px] leading-[17px] dark:bg-black/20"
+            style={{ borderColor: colourFor(message.replyTo.senderId ?? message.replyTo.senderName) }}
           >
-            <span className={`block font-semibold ${own ? "text-white" : "text-ios-blue"}`}>
+            <span className="block font-medium" style={{ color: colourFor(message.replyTo.senderId ?? message.replyTo.senderName) }}>
               {nameOf(message.replyTo.senderId, message.replyTo.senderName)}
             </span>
-            <span className={`line-clamp-2 ${own ? "text-white/85" : "text-muted"}`}>{message.replyTo.preview}</span>
+            <span className="line-clamp-2 opacity-70">{message.replyTo.preview}</span>
           </button>
         )}
         {message.text && (
           // WhatsApp-style time: floated into the last line when it fits, otherwise wrapped onto its own line.
-          <p className="whitespace-pre-wrap wrap-break-word">
+          <p className={`whitespace-pre-wrap wrap-break-word ${preview ? "px-1.5 pt-1" : ""}`}>
             {linkify(shortText ?? message.text, own)}
             {shortText !== undefined && (
               <>
                 {"… "}
-                <button onClick={() => setExpanded(true)} className={`font-semibold ${own ? "text-white" : "text-ios-blue"}`}>
+                <button onClick={() => setExpanded(true)} className="font-medium text-[#027eb5] dark:text-[#53bdeb]">
                   Read more
                 </button>
               </>
             )}
-            <time className={`float-right ml-2 mt-[5px] text-[11px] leading-4 ${timeTone}`}>{time}</time>
+            <span className="float-right ml-2.5 mt-2 -mb-1.5">{meta}</span>
           </p>
         )}
         {a && preview === "image" && (
-          // eslint-disable-next-line @next/next/no-img-element -- served by the LAN host, not optimisable by Next
-          <img
-            src={previewUrl}
-            alt={a.name}
-            loading="lazy"
-            draggable={false}
-            onError={() => setPreviewFailed(true)}
-            onClick={() => !gestureConsumedClick.current && onOpenImage()}
-            className="block max-h-80 min-h-24 min-w-24 max-w-full cursor-zoom-in rounded-[14px] bg-background/30 object-cover"
-          />
-        )}
-        {a && preview === "video" && (
-          <video
-            // "#t=0.1" makes iOS Safari load and show the first frame instead of a blank box.
-            src={`${previewUrl}#t=0.1`}
-            controls
-            playsInline
-            preload="metadata"
-            onError={() => setPreviewFailed(true)}
-            className="block max-h-80 max-w-full rounded-[14px] bg-black"
-          />
-        )}
-        {preview && (
-          <div className="flex justify-end px-1.5 pt-0.5">
-            <time className={`text-[11px] leading-4 ${timeTone}`}>{time}</time>
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element -- served by the LAN host, not optimisable by Next */}
+            <img
+              src={previewUrl}
+              alt={a.name}
+              loading="lazy"
+              draggable={false}
+              onError={() => setPreviewFailed(true)}
+              onClick={() => !gestureConsumedClick.current && onOpenImage()}
+              className="block max-h-80 min-h-24 min-w-40 max-w-full cursor-zoom-in rounded-[5px] bg-black/10 object-cover md:max-w-[330px]"
+            />
+            {!message.text && (
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 flex h-9 items-end justify-end rounded-b-[5px] bg-linear-to-b from-transparent to-black/45 px-2 pb-1 text-white">
+                <Meta at={message.createdAt} own={own} status={a.status} onMedia />
+              </span>
+            )}
           </div>
         )}
+        {a && preview === "video" && (
+          <>
+            <video
+              // "#t=0.1" makes iOS Safari load and show the first frame instead of a blank box.
+              src={`${previewUrl}#t=0.1`}
+              controls
+              playsInline
+              preload="metadata"
+              onError={() => setPreviewFailed(true)}
+              className="block max-h-80 max-w-full rounded-[5px] bg-black md:max-w-[330px]"
+            />
+            {!message.text && <div className="flex justify-end px-1.5 pt-1">{meta}</div>}
+          </>
+        )}
         {a && !preview && (
-          <div className="flex min-w-52 flex-col gap-1.5 py-0.5">
-            <div className="flex items-center gap-2.5">
-              <span
-                className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${own ? "bg-white/20" : "bg-background"}`}
-              >
-                <FileIcon />
+          <div className={`flex min-w-60 flex-col gap-1 md:min-w-72 ${message.text ? "mb-1" : ""}`}>
+            <div className="-mx-1 flex items-center gap-2.5 rounded-md bg-black/5 p-2.5 dark:bg-black/20">
+              <span className="flex h-10 w-[34px] shrink-0 items-end justify-center rounded-[4px] bg-[#e5484d] pb-1 text-[9px] font-bold uppercase text-white">
+                {extension(a.name)}
               </span>
-              <div className="min-w-0">
-                <p className="break-all text-[15px] font-medium leading-5">{a.name}</p>
-                <p className={`text-[12px] ${own ? "text-white/75" : "text-muted"}`}>
+              <div className="min-w-0 flex-1">
+                <p className="break-all text-[14.5px] leading-5">{a.name}</p>
+                <p className="text-[12px] opacity-65">
                   {formatBytes(a.size)}
                   {a.status === "ready" && " · ✓ verified"}
                   {a.status === "failed" && " · didn't finish sending"}
                   {a.status === "live" && (own ? " · live from this device, keep LANDrop open" : " · live while the sender is online")}
                 </p>
               </div>
+              {isAvailable(a) && (
+                <a
+                  href={downloadUrl}
+                  download={a.name}
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`Save ${a.name}`}
+                  title={a.sha256 ? `Save · SHA-256 ${a.sha256}` : "Save · streamed live from the sender"}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-full border-[1.5px] border-current opacity-60 hover:opacity-100"
+                >
+                  <SaveIcon size={18} />
+                </a>
+              )}
             </div>
-            {a.status === "uploading" && <UploadProgress size={a.size} progress={progress} own={own} />}
-            <time className={`self-end text-[11px] leading-4 ${timeTone}`}>{time}</time>
+            {a.status === "uploading" && <UploadProgress size={a.size} progress={progress} />}
+            {!message.text && <div className="flex justify-end pt-0.5">{meta}</div>}
           </div>
         )}
         {a?.status === "live" && (
@@ -264,9 +263,44 @@ export function Bubble({
           </span>
         )}
       </div>
-      {!own && actions}
     </div>
   );
 }
 
-/** Full-screen photo viewer, like tapping a photo in Messages. */
+/** Time, and on your own messages WhatsApp's status: clock while sending, a tick once the host has it. */
+function Meta({
+  at,
+  own,
+  status,
+  onMedia = false,
+}: {
+  at: number;
+  own: boolean;
+  status?: Attachment["status"];
+  onMedia?: boolean;
+}) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] leading-4 ${onMedia ? "" : "opacity-60"}`}>
+      <time>{formatTime(at)}</time>
+      {own &&
+        (status === "uploading" ? (
+          <span aria-label="Sending">
+            <ClockIcon />
+          </span>
+        ) : status === "failed" ? (
+          <span aria-label="Didn't finish sending" className="text-danger">
+            <AlertIcon />
+          </span>
+        ) : (
+          <span aria-label="Sent">
+            <TickIcon />
+          </span>
+        ))}
+    </span>
+  );
+}
+
+function extension(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && name.length - dot <= 5 ? name.slice(dot + 1) : "file";
+}

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { MAX_DEVICE_NAME_LENGTH, isAvailable, type Message } from "@landrop/protocol";
 import type { Progress } from "./landrop";
 
@@ -8,45 +9,103 @@ export function ImageViewer({
   name,
   url,
   downloadUrl,
+  caption,
   onClose,
 }: {
   name: string;
   url: string;
   downloadUrl: string;
+  /** Who sent it and when, shown in the viewer's header like WhatsApp. */
+  caption?: string;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscape(onClose);
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={name}
-      className="fixed inset-0 z-50 flex flex-col bg-black"
+      className="fixed inset-0 z-50 flex flex-col bg-[#0b141a]/95 text-[#e9edef]"
       onClick={onClose}
     >
       <div
-        className="flex items-center justify-between gap-3 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] text-white"
+        className="flex items-center gap-3 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]"
         onClick={(e) => e.stopPropagation()}
       >
-        <button onClick={onClose} className="text-[17px] text-ios-blue" autoFocus>
-          Done
-        </button>
-        <p className="min-w-0 truncate text-[15px] font-semibold">{name}</p>
-        <a href={downloadUrl} download={name} className="text-ios-blue" aria-label={`Save ${name}`}>
-          <SaveIcon />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[16px]">{caption ?? name}</p>
+          {caption && <p className="truncate text-[13px] text-[#8696a0]">{name}</p>}
+        </div>
+        <a href={downloadUrl} download={name} className={VIEWER_BUTTON} aria-label={`Save ${name}`} title="Save">
+          <SaveIcon size={22} />
         </a>
+        <button onClick={onClose} className={VIEWER_BUTTON} autoFocus aria-label="Done" title="Close">
+          <CloseIcon />
+        </button>
       </div>
       {/* eslint-disable-next-line @next/next/no-img-element -- served by the LAN host, not optimisable by Next */}
-      <img src={url} alt={name} className="min-h-0 flex-1 object-contain pb-[env(safe-area-inset-bottom)]" />
+      <img src={url} alt={name} className="min-h-0 flex-1 object-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))]" />
     </div>
   );
 }
 
-/** iOS-style alert with a text field for choosing your name in the chat. */
+const VIEWER_BUTTON = "flex size-10 shrink-0 items-center justify-center rounded-full text-[#aebac1] hover:bg-white/10";
+
+/** Closes a dialog with Escape. */
+export function useEscape(onClose: () => void) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+}
+
+/**
+ * Everything that pops up is a bottom sheet: it slides up from the bottom edge (centred and
+ * width-capped on computers). A click on the dimmed backdrop, or Escape, closes it. Rendered on
+ * <body> so no panel's stacking context can put it behind other parts of the page.
+ */
+export function Sheet({
+  label,
+  labelledBy,
+  onClose,
+  className = "",
+  children,
+}: {
+  label?: string;
+  labelledBy?: string;
+  onClose: () => void;
+  className?: string;
+  children: ReactNode;
+}) {
+  useEscape(onClose);
+  return createPortal(
+    <div className="sheet-backdrop fixed inset-0 z-50 flex items-end justify-center bg-[#0b141a]/50 dark:bg-black/60" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        aria-labelledby={labelledBy}
+        className={`sheet max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-[28px] bg-panel pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_40px_rgba(11,20,26,.22)] ${className}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span aria-hidden className="mx-auto mb-1 mt-2.5 block h-1 w-9 rounded-full bg-divider" />
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** A row in a sheet's list of actions. */
+export const SHEET_ITEM = "flex w-full items-center gap-4 px-6 py-3.5 text-left text-[15px] hover:bg-hover";
+
+export const TEXT_BUTTON =
+  "rounded-full px-5 py-2.5 text-[14px] font-medium text-accent hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent";
+export const FILLED_BUTTON =
+  "rounded-full bg-accent px-5 py-2.5 text-[14px] font-medium text-white hover:brightness-105 disabled:opacity-40";
+
+/** WhatsApp-style dialog with a text field for choosing your name in the chat. */
 export function RenameDialog({
   current,
   welcome = false,
@@ -62,58 +121,51 @@ export function RenameDialog({
   const [name, setName] = useState(current);
   const trimmed = name.trim();
   const canSave = trimmed.length > 0 && (welcome || trimmed !== current);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  useEscape(onCancel);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-10" onClick={onCancel}>
+    <Sheet labelledBy="rename-title" onClose={onCancel}>
       <form
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="rename-title"
-        className="w-full max-w-[270px] overflow-hidden rounded-[14px] bg-bar/95 text-center backdrop-blur-xl"
-        onClick={(e) => e.stopPropagation()}
+        className="px-6 pt-3"
         onSubmit={(e) => {
           e.preventDefault();
           if (canSave) onSave(trimmed);
         }}
       >
-        <div className="px-4 pb-4 pt-5">
-          <h2 id="rename-title" className="text-[17px] font-semibold">
-            {welcome ? "Name this device" : "Your name"}
-          </h2>
-          <p className="mt-0.5 text-[13px] text-muted">
-            {welcome
-              ? "Everyone in the chat sees this name. Make it easy to recognise, like “Alex’s Galaxy S24”."
-              : "This is how everyone in the chat sees you."}
-          </p>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onFocus={(e) => e.target.select()}
-            maxLength={MAX_DEVICE_NAME_LENGTH}
-            autoFocus
-            enterKeyHint="done"
-            aria-label="Your name"
-            className="mt-3 w-full rounded-[8px] border border-separator bg-background px-2.5 py-1.5 text-[16px] outline-none select-text [-webkit-user-select:text] focus:border-ios-blue"
-          />
-        </div>
-        <div className="grid grid-cols-2 border-t border-separator text-[17px]">
-          <button type="button" onClick={onCancel} className="border-r border-separator py-2.5 text-ios-blue">
+        <h2 id="rename-title" className="text-[20px] font-medium">
+          {welcome ? "Name this device" : "Your name"}
+        </h2>
+        <p className="mt-2 text-[14px] text-muted">
+          {welcome
+            ? "Everyone in the chat sees this name. Make it easy to recognise, like “Alex’s Galaxy S24”."
+            : "This is how everyone in the chat sees you."}
+        </p>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          maxLength={MAX_DEVICE_NAME_LENGTH}
+          autoFocus
+          enterKeyHint="done"
+          aria-label="Your name"
+          className="mt-5 w-full border-b-2 border-accent bg-transparent pb-1.5 text-[16px] outline-none select-text [-webkit-user-select:text]"
+        />
+        <p className="mt-1 text-right text-[12px] text-muted tabular-nums">
+          {MAX_DEVICE_NAME_LENGTH - name.length}
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className={TEXT_BUTTON}>
             {welcome ? "Skip" : "Cancel"}
           </button>
-          <button type="submit" disabled={!canSave} className="py-2.5 font-semibold text-ios-blue disabled:opacity-35">
+          <button type="submit" disabled={!canSave} className={FILLED_BUTTON}>
             {welcome ? "Join" : "Save"}
           </button>
         </div>
       </form>
-    </div>
+    </Sheet>
   );
 }
 
-/** iOS-style press-and-hold menu for a message. */
+/** Message actions. */
 export function MessageSheet({
   message,
   saveUrl,
@@ -129,57 +181,53 @@ export function MessageSheet({
   onRemove: () => void;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
   const a = message.attachment;
-  const item = "block w-full border-t border-separator py-4 text-center text-[20px] first:border-t-0";
+  const item = SHEET_ITEM;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Message actions"
-        className="mb-[max(0.5rem,env(safe-area-inset-bottom))] flex w-full max-w-md flex-col gap-2 px-2"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="overflow-hidden rounded-[14px] bg-bar/95 backdrop-blur-xl">
-          <button onClick={onReply} className={`${item} text-ios-blue`}>
-            Reply
+    <Sheet label="Message actions" onClose={onClose}>
+        <button onClick={onReply} className={item} autoFocus>
+          <ReplyIcon size={20} />
+          Reply
+        </button>
+        {message.text && (
+          <button
+            onClick={() => {
+              copyText(message.text!);
+              onClose();
+            }}
+            className={item}
+          >
+            <CopyIcon size={20} />
+            Copy
           </button>
-          {message.text && (
-            <button
-              onClick={() => {
-                copyText(message.text!);
-                onClose();
-              }}
-              className={`${item} text-ios-blue`}
-            >
-              Copy
-            </button>
-          )}
-          {a && isAvailable(a) && (
-            <a href={saveUrl} download={a.name} onClick={onClose} className={`${item} text-ios-blue`}>
-              Save
-            </a>
-          )}
-          {canRemove && (
-            <button onClick={onRemove} className={`${item} text-ios-red`}>
-              Remove for everyone
-            </button>
-          )}
-        </div>
-        <button onClick={onClose} className="w-full rounded-[14px] bg-bar py-4 text-[20px] font-semibold text-ios-blue" autoFocus>
+        )}
+        {a && isAvailable(a) && (
+          <a
+            href={saveUrl}
+            download={a.name}
+            onClick={onClose}
+            className={item}
+            title={a.sha256 ? `SHA-256 ${a.sha256}` : "Streamed live from the sender"}
+          >
+            <SaveIcon size={20} />
+            Save
+          </a>
+        )}
+        {canRemove && (
+          <button onClick={onRemove} className={`${item} text-danger`}>
+            <TrashIcon />
+            Remove for everyone
+          </button>
+        )}
+        <button onClick={onClose} className={`${item} text-muted`}>
+          <CloseIcon size={20} />
           Cancel
         </button>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
-/** Press-and-hold menu for a chat in the list. Deleting only affects this device, like WhatsApp. */
+/** Clear or delete a chat. Deleting only affects this device, like WhatsApp. */
 export function ChatSheet({
   title,
   isGroup,
@@ -191,61 +239,27 @@ export function ChatSheet({
   onDelete: () => void;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="chat-sheet-title"
-        className="mb-[max(0.5rem,env(safe-area-inset-bottom))] flex w-full max-w-md flex-col gap-2 px-2"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="overflow-hidden rounded-[14px] bg-bar/95 backdrop-blur-xl">
-          <div className="px-4 py-3 text-center">
-            <p id="chat-sheet-title" className="text-[13px] font-semibold text-muted">
-              {isGroup ? "Clear the LANDrop group?" : `Delete chat with ${title}?`}
-            </p>
-            <p className="mt-0.5 text-[13px] text-muted">
-              {isGroup
-                ? "All messages so far are removed from this device. Everyone else keeps theirs."
-                : `All messages are removed from this device. ${title} keeps their copy.`}
-            </p>
-          </div>
-          <button onClick={onDelete} className="block w-full border-t border-separator py-4 text-center text-[20px] text-ios-red">
+    <Sheet labelledBy="chat-sheet-title" onClose={onClose}>
+      <div className="px-6 pt-3">
+        <h2 id="chat-sheet-title" className="text-[20px] font-medium">
+          {isGroup ? "Clear the LANDrop group?" : `Delete chat with ${title}?`}
+        </h2>
+        <p className="mt-3 text-[14px] text-muted">
+          {isGroup
+            ? "All messages so far are removed from this device. Everyone else keeps theirs."
+            : `All messages are removed from this device. ${title} keeps their copy.`}
+        </p>
+        <div className="mt-6 flex justify-end gap-2">
+          <button onClick={onClose} className={TEXT_BUTTON} autoFocus>
+            Cancel
+          </button>
+          <button onClick={onDelete} className={`${FILLED_BUTTON} bg-danger`}>
             {isGroup ? "Clear chat" : "Delete chat"}
           </button>
         </div>
-        <button onClick={onClose} className="w-full rounded-[14px] bg-bar py-4 text-[20px] font-semibold text-ios-blue" autoFocus>
-          Cancel
-        </button>
       </div>
-    </div>
-  );
-}
-
-export const ACTION_CLASS =
-  "flex size-7 items-center justify-center rounded-full text-muted hover:bg-bubble-other hover:text-foreground";
-
-export function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      className={ACTION_CLASS}
-      aria-label={copied ? "Copied" : "Copy message"}
-      title={copied ? "Copied" : "Copy"}
-      onClick={() => {
-        if (!copyText(text)) return;
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-    >
-      {copied ? <CheckIcon /> : <CopyIcon />}
-    </button>
+    </Sheet>
   );
 }
 
@@ -261,24 +275,19 @@ const iconProps = {
   "aria-hidden": true,
 } as const;
 
-const CopyIcon = () => (
-  <svg {...iconProps}>
-    <rect x="9" y="9" width="13" height="13" rx="2" />
+type IconProps = { size?: number };
+const sized = (size = 24) => ({ ...iconProps, width: size, height: size, strokeWidth: 1.8 });
+
+export const CopyIcon = ({ size }: IconProps) => (
+  <svg {...sized(size)}>
+    <rect x="9" y="9" width="12" height="12" rx="2" />
     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
   </svg>
 );
 
-const CheckIcon = () => (
-  <svg {...iconProps}>
-    <path d="M20 6 9 17l-5-5" />
-  </svg>
-);
-
-export const SaveIcon = () => (
-  <svg {...iconProps}>
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <path d="m7 10 5 5 5-5" />
-    <path d="M12 15V3" />
+export const SaveIcon = ({ size }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14" />
   </svg>
 );
 
@@ -300,7 +309,7 @@ export function copyText(text: string): boolean {
   return ok;
 }
 
-export function UploadProgress({ size, progress, own }: { size: number; progress?: Progress; own: boolean }) {
+export function UploadProgress({ size, progress }: { size: number; progress?: Progress }) {
   const done = progress?.bytesReceived ?? 0;
   const fraction = size > 0 ? done / size : 0;
   const remaining = progress && progress.bytesPerSecond > 0 ? (size - done) / progress.bytesPerSecond : undefined;
@@ -311,14 +320,11 @@ export function UploadProgress({ size, progress, own }: { size: number; progress
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(fraction * 100)}
-        className={`h-1 overflow-hidden rounded-full ${own ? "bg-white/30" : "bg-separator"}`}
+        className="h-1 overflow-hidden rounded-full bg-current/15"
       >
-        <div
-          className={`h-full transition-[width] ${own ? "bg-white" : "bg-ios-blue"}`}
-          style={{ width: `${fraction * 100}%` }}
-        />
+        <div className="h-full bg-accent transition-[width]" style={{ width: `${fraction * 100}%` }} />
       </div>
-      <p className={`text-[12px] tabular-nums ${own ? "text-white/75" : "text-muted"}`}>
+      <p className="text-[12px] tabular-nums opacity-65">
         {done >= size && size > 0
           ? "Verifying…"
           : `${Math.floor(fraction * 100)}%${progress ? ` · ${formatBytes(progress.bytesPerSecond)}/s` : ""}${
@@ -329,95 +335,216 @@ export function UploadProgress({ size, progress, own }: { size: number; progress
   );
 }
 
+/** WhatsApp-like avatar colours; each device keeps its own, also used for its name in the group. */
+const AVATAR_COLOURS = [
+  "#e5484d", "#f76b15", "#d6409f", "#8e4ec6", "#6e56cf", "#3e63dd",
+  "#0090ff", "#00a2c7", "#12a594", "#29a383", "#46a758", "#a18072",
+];
+
+export function colourFor(seed: string): string {
+  let hash = 0;
+  for (const ch of seed) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
+  return AVATAR_COLOURS[Math.abs(hash) % AVATAR_COLOURS.length];
+}
+
 const AVATAR_SIZES = {
-  list: "size-12 text-[17px]",
-  large: "size-8 text-[12px] ring-2 ring-bar",
-  small: "size-7 text-[11px]",
+  profile: "size-20 text-[30px]",
+  list: "size-[49px] text-[18px]",
+  header: "size-10 text-[15px]",
+  small: "size-8 text-[13px]",
 };
 
-export function Avatar({ name, size = "large" }: { name: string; size?: keyof typeof AVATAR_SIZES }) {
+export function Avatar({
+  name,
+  seed,
+  size = "small",
+}: {
+  name: string;
+  /** What picks the colour: a device or chat id, so it survives renames. Defaults to the name. */
+  seed?: string;
+  size?: keyof typeof AVATAR_SIZES;
+}) {
   const initials = name
     .split(/\s+/)
-    .filter((w) => !/^(on|the)$/i.test(w))
+    // Skip separators like "·" and filler words, so "Mac · Chrome" reads "MC".
+    .filter((w) => /^[\p{L}\p{N}]/u.test(w) && !/^(on|the)$/i.test(w))
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase())
     .join("");
   return (
     <span
-      className={`flex items-center justify-center rounded-full bg-linear-to-b from-[#a5abb8] to-[#858994] font-semibold text-white ${
-        AVATAR_SIZES[size]
-      }`}
+      className={`flex shrink-0 items-center justify-center rounded-full font-medium text-white ${AVATAR_SIZES[size]}`}
+      style={{ background: colourFor(seed ?? name) }}
     >
       {initials || "?"}
     </span>
   );
 }
 
-export const ReplyIcon = () => (
-  <svg {...iconProps}>
+export const ReplyIcon = ({ size }: IconProps) => (
+  <svg {...sized(size)}>
     <path d="m9 17-5-5 5-5" />
     <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
   </svg>
 );
 
-export const GroupIcon = () => (
-  <svg {...iconProps} width={20} height={20}>
-    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+export const TrashIcon = ({ size = 20 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+  </svg>
+);
+
+export const CloseIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="m6 6 12 12M18 6 6 18" />
+  </svg>
+);
+
+export const WifiIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.7 16a5 5 0 0 1 6.6 0" />
+    <circle cx="12" cy="19" r=".9" fill="currentColor" />
   </svg>
 );
 
 export const BackIcon = () => (
-  <svg {...iconProps} width={24} height={24} strokeWidth={2.5}>
-    <path d="m15 18-6-6 6-6" />
+  <svg {...sized(24)} strokeWidth={2}>
+    <path d="M19 12H5m6-6-6 6 6 6" />
   </svg>
 );
 
-/** A panel outline; its divider is filled in while the panel is pinned open. */
-export const SidebarIcon = ({ pinned }: { pinned: boolean }) => (
-  <svg {...iconProps} width={22} height={22}>
-    <rect x="3" y="4" width="18" height="16" rx="2" />
-    <path d="M9 4v16" />
-    {pinned && <path d="M4.5 5.5h3v13h-3z" fill="currentColor" stroke="none" />}
+export const QrIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <rect x="4" y="4" width="6" height="6" rx="1" />
+    <rect x="14" y="4" width="6" height="6" rx="1" />
+    <rect x="4" y="14" width="6" height="6" rx="1" />
+    <path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2" />
   </svg>
 );
 
-/** Side by side on wider screens, the chat list and chat headers share one height so their borders meet. */
-export const HEADER_HEIGHT = "md:h-[72px] md:shrink-0 md:py-0";
-
-export const QrIcon = () => (
-  <svg {...iconProps} width={22} height={22}>
-    <rect x="3" y="3" width="7" height="7" rx="1" />
-    <rect x="14" y="3" width="7" height="7" rx="1" />
-    <rect x="3" y="14" width="7" height="7" rx="1" />
-    <path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h3v3h-3" />
-  </svg>
-);
-
-export const WifiIcon = () => (
-  <svg {...iconProps} width={22} height={22}>
-    <path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />
-  </svg>
-);
-
-export const PlusIcon = () => (
-  <svg {...iconProps} width={18} height={18} strokeWidth={2.5}>
+export const PlusIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)} strokeWidth={2}>
     <path d="M12 5v14M5 12h14" />
   </svg>
 );
 
-export const ArrowUpIcon = () => (
-  <svg {...iconProps} width={16} height={16} strokeWidth={3}>
-    <path d="M12 19V5M5 12l7-7 7 7" />
+export const SendIcon = () => (
+  <svg width={22} height={22} viewBox="0 0 24 24" aria-hidden>
+    <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z" />
   </svg>
 );
 
-export const FileIcon = () => (
-  <svg {...iconProps} width={20} height={20}>
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <path d="M14 2v6h6" />
+export const FileIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="M6.5 3h7l4 4v14h-11zM13.5 3v4h4" />
+  </svg>
+);
+
+export const ImageIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <rect x="3.5" y="5" width="17" height="14" rx="2" />
+    <path d="m4 17 5-5 4 4 2.5-2.5L20 17" />
+  </svg>
+);
+
+export const CameraIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="M4 8h3.5L9 5.5h6L16.5 8H20v11H4z" />
+    <circle cx="12" cy="13" r="3.2" />
+  </svg>
+);
+
+export const FolderIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="M3.5 6.5h6l2 2h9v10h-17z" />
+  </svg>
+);
+
+export const ChatsIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="M12 3.5a8.5 8.5 0 0 0-7.3 12.8L3.5 20.5l4.3-1.1A8.5 8.5 0 1 0 12 3.5z" />
+  </svg>
+);
+
+export const DevicesIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <rect x="2.5" y="5" width="13" height="10" rx="1.5" />
+    <path d="M1.5 18h16" />
+    <rect x="16.5" y="8" width="6" height="11" rx="1.5" />
+  </svg>
+);
+
+export const SettingsIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" />
+  </svg>
+);
+
+export const NewChatIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="M19.5 13v5.5a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2H11" />
+    <path d="M17 3.5 20.5 7 12 15.5H8.5V12z" />
+  </svg>
+);
+
+export const MenuIcon = () => (
+  <svg width={24} height={24} viewBox="0 0 24 24" aria-hidden>
+    <g fill="currentColor">
+      <circle cx="12" cy="5.5" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="18.5" r="1.8" />
+    </g>
+  </svg>
+);
+
+export const SearchIcon = ({ size = 20 }: IconProps) => (
+  <svg {...sized(size)} strokeWidth={2}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m16 16 4 4" />
+  </svg>
+);
+
+export const ChevronIcon = () => (
+  <svg {...sized(20)} strokeWidth={2.2}>
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
+
+/** A solid padlock, like WhatsApp's: readable even at small sizes. */
+export const LockIcon = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="shrink-0">
+    <path d="M8 10V7.5a4 4 0 0 1 8 0V10" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" />
+    <rect x="4.5" y="10" width="15" height="11" rx="2.5" fill="currentColor" />
+  </svg>
+);
+
+/** Message status after the time on your own messages. */
+export const TickIcon = () => (
+  <svg width={16} height={11} viewBox="0 0 16 11" aria-hidden>
+    <path d="m1.5 5.5 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+export const ClockIcon = () => (
+  <svg {...sized(14)} strokeWidth={2}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 7.5V12l3 2" />
+  </svg>
+);
+
+export const AlertIcon = () => (
+  <svg {...sized(14)} strokeWidth={2.2}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 7.5v5M12 16v.5" />
+  </svg>
+);
+
+/** The LANDrop drop-and-signal mark, drawn in the accent colour. */
+export const Logo = ({ size = 72 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+    <path fill="currentColor" d="M12 6s-4.5 6-4.5 9a4.5 4.5 0 0 0 9 0c0-3-4.5-9-4.5-9z" />
+    <path d="M4.5 8.5a11 11 0 0 1 15 0" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" opacity={0.55} />
   </svg>
 );
 
@@ -463,7 +590,7 @@ export function linkify(text: string, own: boolean) {
         href={part}
         target="_blank"
         rel="noopener noreferrer"
-        className={`underline underline-offset-2 ${own ? "text-white" : "text-ios-blue"}`}
+        className={`underline underline-offset-2 ${own ? "" : "text-[#027eb5] dark:text-[#53bdeb]"}`}
       >
         {part}
       </a>
@@ -489,3 +616,48 @@ export function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   return `${m}m ${Math.ceil(seconds % 60)}s`;
 }
+
+/** The ⋮ button: its actions open in a bottom sheet. */
+export function DropdownMenu({
+  label,
+  items,
+}: {
+  label: string;
+  items: { label: string; onSelect: () => void; danger?: boolean }[];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={label}
+        className={`${ICON_BUTTON} ${open ? "bg-field" : ""}`}
+      >
+        <MenuIcon />
+      </button>
+      {open && (
+        <Sheet label={label} onClose={() => setOpen(false)}>
+          {items.map((item) => (
+            <button
+              key={item.label}
+              onClick={() => {
+                setOpen(false);
+                item.onSelect();
+              }}
+              className={`${SHEET_ITEM} ${item.danger ? "text-danger" : ""}`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+export const ICON_BUTTON = "flex size-10 shrink-0 items-center justify-center rounded-full text-muted hover:bg-hover";
+/** Header bars of the list and the chat share one height so their borders meet, like WhatsApp Web. */
+export const BAR = "flex h-16 shrink-0 items-center gap-2 bg-bar px-4 pt-[env(safe-area-inset-top)] box-content md:box-border md:pt-0";

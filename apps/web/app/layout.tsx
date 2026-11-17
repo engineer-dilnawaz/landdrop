@@ -12,9 +12,15 @@ export const viewport: Viewport = {
   colorScheme: "light dark",
 };
 
+const ACCENT_SCRIPT = `try{if(localStorage.getItem("landrop.accent")==="blue")document.documentElement.classList.add("accent-blue")}catch(e){}`;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+      <head>
+        {/* Applies the chosen chat colour before the first paint, so a blue choice never flashes green. */}
+        <script dangerouslySetInnerHTML={{ __html: ACCENT_SCRIPT }} />
+      </head>
       <body className="min-h-full">{children}</body>
     </html>
   );

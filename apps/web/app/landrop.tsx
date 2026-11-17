@@ -23,8 +23,22 @@ import { ChatView, type OpenChat } from "./chat-view";
 import { guessDeviceName } from "./device-name";
 import { DevicePicker, type PickableDevice } from "./device-picker";
 import { JoinDialog } from "./join-dialog";
+import { BottomTabs, Rail, type Panel } from "./nav";
+import { Settings } from "./settings";
 import { Sidebar } from "./sidebar";
-import { ChatSheet, ImageViewer, MessageSheet, PlusIcon, RenameDialog, formatBytes, formatTime } from "./ui";
+import {
+  ChatSheet,
+  CloseIcon,
+  ImageViewer,
+  LockIcon,
+  Logo,
+  MessageSheet,
+  PlusIcon,
+  RenameDialog,
+  formatBytes,
+  formatDay,
+  formatTime,
+} from "./ui";
 
 const LAN_PORT = Number(process.env.NEXT_PUBLIC_LANDROP_PORT ?? DEFAULT_LAN_PORT);
 /**
@@ -226,7 +240,9 @@ export default function LanDrop() {
   const askForName = useRef(false);
   const [inviting, setInviting] = useState(false);
   /** The "Available devices" screen, shown in place of the chat list. */
-  const [picking, setPicking] = useState(false);
+  /** What the list column shows: chats, the device list (WhatsApp's "New chat") or settings. */
+  const [panel, setPanel] = useState<Panel>("chats");
+  const picking = panel === "devices";
   /** The picker's "Also on this Wi-Fi" list; undefined until the first scan finishes. */
   const [networkDevices, setNetworkDevices] = useState<NetworkDevice[]>();
   /** dragenter/dragleave fire for every child element; count them so the overlay doesn't flicker. */
@@ -294,7 +310,7 @@ export default function LanDrop() {
           // A first visit opens on "Available devices", to show straight away who else is around.
           if (askForName.current) {
             setRenaming("welcome");
-            setPicking(true);
+            setPanel("devices");
           }
           askForName.current = false;
         }
@@ -636,44 +652,50 @@ export default function LanDrop() {
   };
   // Presence carries the latest name, including renames made in another tab of this browser.
   const selfName = (selfId && state.devices[selfId]?.name) || state.self?.name;
+  const totalUnread = chats.reduce((sum, c) => sum + c.unread, 0);
 
   return (
     // App chrome, not a document: no text selection or iOS callouts anywhere except text fields.
     <div
       {...dropHandlers}
-      className="relative flex h-dvh bg-background select-none [-webkit-touch-callout:none] [-webkit-user-select:none]"
+      className="relative flex h-dvh bg-app select-none [-webkit-touch-callout:none] [-webkit-user-select:none]"
     >
-      {/* Phone: one screen at a time. Wider screens: the list beside the open chat, like WhatsApp Desktop. */}
+      {/* Phone: one screen at a time. Wider screens: icon rail, list and open chat side by side, like WhatsApp Web. */}
+      <Rail
+        panel={panel}
+        unread={totalUnread}
+        selfName={selfName}
+        selfId={selfId}
+        onPanel={setPanel}
+        onInvite={() => setInviting(true)}
+      />
       <Sidebar hidden={!!activeChat}>
-        {({ compact, pinned, togglePinned }) =>
-          picking ? (
-            <DevicePicker
-              devices={pickableDevices}
-              network={networkDevices}
-              onPick={(id) => {
-                setPicking(false);
-                openChat(id);
-              }}
-              onBack={() => setPicking(false)}
-              onInvite={() => setInviting(true)}
-            />
-          ) : (
-            <ChatList
-              chats={chats}
-              activeId={activeChat?.id}
-              selfName={selfName}
-              connection={state.connection}
-              compact={compact}
-              pinned={pinned}
-              onTogglePinned={togglePinned}
-              onOpen={openChat}
-              onHold={setHeldChat}
-              onRename={() => setRenaming("rename")}
-              onInvite={() => setInviting(true)}
-              onNewChat={() => setPicking(true)}
-            />
-          )
-        }
+        {panel === "devices" ? (
+          <DevicePicker
+            devices={pickableDevices}
+            network={networkDevices}
+            onPick={(id) => {
+              setPanel("chats");
+              openChat(id);
+            }}
+            onBack={() => setPanel("chats")}
+            onInvite={() => setInviting(true)}
+          />
+        ) : panel === "settings" ? (
+          <Settings selfName={selfName} selfId={selfId} onRename={() => setRenaming("rename")} />
+        ) : (
+          <ChatList
+            chats={chats}
+            activeId={activeChat?.id}
+            connection={state.connection}
+            onOpen={openChat}
+            onHold={setHeldChat}
+            onInvite={() => setInviting(true)}
+            onNewChat={() => setPanel("devices")}
+            onSettings={() => setPanel("settings")}
+          />
+        )}
+        <BottomTabs panel={panel} unread={totalUnread} onPanel={setPanel} />
       </Sidebar>
       <section className={`${activeChat ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
         {activeChat ? (
@@ -695,14 +717,35 @@ export default function LanDrop() {
               send: () => void send(),
             }}
             onBack={() => openChat(undefined)}
+            onClearChat={() =>
+              setHeldChat(
+                chats.find((c) => c.id === activeChat.id) ?? {
+                  id: activeChat.id,
+                  title: activeChat.title,
+                  isGroup: activeChat.isGroup,
+                  online: activeChat.online,
+                  unread: 0,
+                },
+              )
+            }
             onOpenImage={setViewing}
             onReply={setReplyTo}
             onLongPress={setSelected}
           />
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-muted">
-            <p className="text-[17px] font-semibold text-foreground">LANDrop</p>
-            <p className="max-w-72 text-[13px]">Pick a chat to start. Everything stays on this Wi-Fi network.</p>
+          // WhatsApp Web's welcome pane while no chat is open.
+          <div className="relative flex flex-1 flex-col items-center justify-center gap-4 border-b-[6px] border-accent bg-bar px-10 text-center">
+            <span className="text-accent">
+              <Logo size={96} />
+            </span>
+            <p className="text-[30px] font-light">LANDrop</p>
+            <p className="max-w-md text-[14px] leading-6 text-muted">
+              Send and receive messages and files of any size with every device on this Wi-Fi. Pick a chat to start.
+            </p>
+            <p className="absolute bottom-8 flex items-center gap-1.5 text-[13px] text-muted">
+              <LockIcon />
+              Everything stays on your network
+            </p>
           </div>
         )}
       </section>
@@ -710,11 +753,15 @@ export default function LanDrop() {
       {state.notice && (
         <div
           role="alert"
-          className="fixed bottom-24 left-1/2 z-30 flex w-[min(92vw,28rem)] -translate-x-1/2 items-start justify-between gap-3 rounded-2xl bg-bar px-3 py-2 text-[13px] shadow-lg ring-1 ring-ios-red/40"
+          className="fixed bottom-24 left-1/2 z-30 flex w-[min(92vw,30rem)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg bg-[#323739] py-3 pl-5 pr-2 text-[14px] text-white shadow-xl md:bottom-6"
         >
-          <span>{state.notice}</span>
-          <button className="shrink-0 text-muted" onClick={() => dispatch({ type: "notice" })} aria-label="Dismiss">
-            ✕
+          <span className="pt-0.5">{state.notice}</span>
+          <button
+            className="flex size-7 shrink-0 items-center justify-center rounded-full text-white/70 hover:bg-white/10"
+            onClick={() => dispatch({ type: "notice" })}
+            aria-label="Dismiss"
+          >
+            <CloseIcon size={18} />
           </button>
         </div>
       )}
@@ -722,6 +769,7 @@ export default function LanDrop() {
       {viewing?.attachment && (
         <ImageViewer
           name={viewing.attachment.name}
+          caption={`${viewing.senderId === selfId ? "You" : nameOf(viewing.senderId, viewing.senderName)} · ${formatDay(viewing.createdAt)} at ${formatTime(viewing.createdAt)}`}
           url={urls(viewing.id).preview}
           downloadUrl={urls(viewing.id).download}
           onClose={() => setViewing(undefined)}
@@ -729,8 +777,8 @@ export default function LanDrop() {
       )}
 
       {dragging && (
-        <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-3xl border-2 border-dashed border-ios-blue bg-background/85 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-2 text-ios-blue">
+        <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent bg-panel/90 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-2 text-accent">
             <PlusIcon />
             <p className="text-[17px] font-semibold">Drop to attach</p>
             <p className="text-[13px] text-muted">Any size. Over {formatBytes(MAX_ATTACHMENT_BYTES)} is shared live from this device</p>

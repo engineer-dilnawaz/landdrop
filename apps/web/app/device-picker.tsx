@@ -2,7 +2,7 @@
 
 import type { NetworkDevice } from "@landrop/protocol";
 import { ChatAvatar } from "./chat-list";
-import { BackIcon, HEADER_HEIGHT, QrIcon, WifiIcon } from "./ui";
+import { BackIcon, ICON_BUTTON, QrIcon, WifiIcon } from "./ui";
 
 export interface PickableDevice {
   /** The private chat with this device. */
@@ -35,31 +35,30 @@ export function DevicePicker({
   const offline = devices.filter((d) => !d.online);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header
-        className={`flex items-center gap-1 border-b border-separator bg-bar/80 px-2 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-xl ${HEADER_HEIGHT}`}
-      >
-        <button onClick={onBack} className="flex size-9 shrink-0 items-center justify-center text-ios-blue" aria-label="Back to chats">
+      <header className="flex h-16 shrink-0 items-center gap-2 px-2 pt-[env(safe-area-inset-top)] box-content md:box-border md:pt-0">
+        <button onClick={onBack} className={`${ICON_BUTTON} text-foreground`} aria-label="Back to chats">
           <BackIcon />
         </button>
         <div className="min-w-0 flex-1">
-          <h1 className="text-[17px] font-semibold leading-tight">Available devices</h1>
+          <h1 className="text-[18px] font-medium leading-tight">Devices</h1>
           <p className="truncate text-[13px] text-muted">Pick one to start a private chat</p>
         </div>
-        <button
-          onClick={onInvite}
-          className="flex size-9 shrink-0 items-center justify-center rounded-full text-ios-blue hover:bg-bubble-other"
-          aria-label="Add a device: show QR code"
-          title="Add a device"
-        >
+        <button onClick={onInvite} className={ICON_BUTTON} aria-label="Add a device: show QR code" title="Add a device">
           <QrIcon />
         </button>
       </header>
+      <button onClick={onInvite} className="flex h-[72px] w-full shrink-0 items-center gap-[15px] pl-[13px] text-left hover:bg-hover">
+        <span aria-hidden className="flex size-[49px] items-center justify-center rounded-full bg-accent text-white">
+          <QrIcon />
+        </span>
+        <span className="text-[17px]">Add a device</span>
+      </button>
 
       <div className="flex-1 overflow-y-auto">
         {devices.length === 0 && (
           <div className="flex flex-col items-center gap-3 px-8 py-16 text-center">
             <p className="text-[15px] text-muted">No other devices have joined yet.</p>
-            <button onClick={onInvite} className="rounded-full bg-ios-blue px-4 py-2 text-[15px] font-semibold text-white">
+            <button onClick={onInvite} className="rounded-full bg-accent px-5 py-2.5 text-[14px] font-medium text-white">
               Show QR code to join
             </button>
           </div>
@@ -84,18 +83,18 @@ function DeviceSection({
   if (!devices.length) return null;
   return (
     <section aria-label={title}>
-      <h2 className="px-4 pb-1 pt-4 text-[13px] font-semibold uppercase tracking-wide text-muted">{title}</h2>
+      <h2 className="px-6 pb-2 pt-5 text-[15px] text-accent">{title}</h2>
       <ul>
         {devices.map((d) => (
           <li key={d.chatId}>
             <button
               onClick={() => onPick(d.chatId)}
-              className="flex w-full items-center gap-3 px-4 py-2 text-left active:bg-bubble-other md:hover:bg-bubble-other/60"
+              className="flex h-[72px] w-full items-center gap-[15px] pl-[13px] text-left hover:bg-hover active:bg-hover"
             >
-              <ChatAvatar chat={{ title: d.name, isGroup: false, online: d.online }} />
-              <div className="min-w-0 flex-1 border-b border-separator/60 pb-2">
-                <p className="truncate text-[17px] font-semibold">{d.name}</p>
-                <p className={`truncate text-[14px] ${d.online ? "text-ios-green" : "text-muted"}`}>{d.status}</p>
+              <ChatAvatar chat={{ id: d.chatId, title: d.name, isGroup: false, online: d.online }} />
+              <div className="flex h-full min-w-0 flex-1 flex-col justify-center border-b border-divider pr-4">
+                <p className="truncate text-[17px]">{d.name}</p>
+                <p className="truncate text-[14px] text-muted">{d.status}</p>
               </div>
             </button>
           </li>
@@ -113,22 +112,22 @@ function NetworkSection({ devices, onInvite }: { devices: NetworkDevice[] | unde
   if (devices?.length === 0) return null;
   return (
     <section aria-label="Also on this Wi-Fi" aria-busy={!devices}>
-      <h2 className="px-4 pb-1 pt-4 text-[13px] font-semibold uppercase tracking-wide text-muted">Also on this Wi-Fi</h2>
+      <h2 className="px-6 pb-2 pt-5 text-[15px] text-accent">Also on this Wi-Fi</h2>
       {!devices ? (
-        <p className="px-4 py-2 text-[14px] text-muted">Looking for devices on this Wi-Fi…</p>
+        <p className="px-6 py-2 text-[14px] text-muted">Looking for devices on this Wi-Fi…</p>
       ) : (
         <ul>
           {devices.map((d) => (
             <li key={d.address}>
               <button
                 onClick={onInvite}
-                className="flex w-full items-center gap-3 px-4 py-2 text-left active:bg-bubble-other md:hover:bg-bubble-other/60"
+                className="flex h-[72px] w-full items-center gap-[15px] pl-[13px] text-left hover:bg-hover active:bg-hover"
               >
-                <span aria-hidden className="flex size-12 shrink-0 items-center justify-center rounded-full bg-bubble-other text-muted">
+                <span aria-hidden className="flex size-[49px] shrink-0 items-center justify-center rounded-full bg-field text-muted">
                   <WifiIcon />
                 </span>
-                <div className="min-w-0 flex-1 border-b border-separator/60 pb-2">
-                  <p className="truncate text-[17px] font-semibold">{d.name ?? d.address}</p>
+                <div className="flex h-full min-w-0 flex-1 flex-col justify-center border-b border-divider pr-4">
+                  <p className="truncate text-[17px]">{d.name ?? d.address}</p>
                   <p className="truncate text-[14px] text-muted">
                     {d.name ? `${d.address} · ` : ""}Not on LANDrop · tap to invite
                   </p>

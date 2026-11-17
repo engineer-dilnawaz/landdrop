@@ -1,8 +1,18 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { LONG_PRESS_MS } from "./bubble";
-import { Avatar, GroupIcon, HEADER_HEIGHT, PlusIcon, QrIcon, SidebarIcon, formatTime } from "./ui";
+import {
+  Avatar,
+  DropdownMenu,
+  ICON_BUTTON,
+  NewChatIcon,
+  QrIcon,
+  SearchIcon,
+  TickIcon,
+  WifiIcon,
+  formatTime,
+} from "./ui";
 
 export interface ChatSummary {
   id: string;
@@ -15,113 +25,123 @@ export interface ChatSummary {
   unread: number;
 }
 
+/** WhatsApp's filter chips. A "Groups" chip joins these once private groups exist. */
+const FILTERS = [
+  { id: "all", label: "All", keep: () => true },
+  { id: "unread", label: "Unread", keep: (c: ChatSummary) => c.unread > 0 },
+  { id: "private", label: "Private", keep: (c: ChatSummary) => !c.isGroup },
+] as const;
+
 export function ChatList({
   chats,
   activeId,
-  selfName,
   connection,
-  compact,
-  pinned,
-  onTogglePinned,
   onOpen,
   onHold,
-  onRename,
   onInvite,
   onNewChat,
+  onSettings,
 }: {
   chats: ChatSummary[];
   activeId?: string;
-  selfName?: string;
   connection: "connecting" | "online" | "offline";
-  /** Collapsed to a rail: only avatars show. */
-  compact: boolean;
-  pinned: boolean;
-  onTogglePinned: () => void;
   onOpen: (id: string) => void;
   /** Press and hold, or right-click: the chat's menu. */
   onHold: (chat: ChatSummary) => void;
-  onRename: () => void;
   /** Shows the QR code other devices scan to join. */
   onInvite: () => void;
   /** Opens the list of devices to start a private chat with. */
   onNewChat: () => void;
+  onSettings: () => void;
 }) {
-  // Hidden rather than removed, so the list keeps its layout while the rail slides open.
-  const railHidden = `transition-opacity ${compact ? "opacity-0" : ""}`;
   const pressable = usePressAndHold(onOpen, onHold);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("all");
+  const q = query.trim().toLowerCase();
+  const shown = chats
+    .filter(FILTERS.find((f) => f.id === filter)!.keep)
+    .filter((c) => !q || c.title.toLowerCase().includes(q) || c.preview?.toLowerCase().includes(q));
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header
-        className={`flex items-center gap-3 border-b border-separator bg-bar/80 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-xl ${HEADER_HEIGHT}`}
-      >
-        <button
-          onClick={onTogglePinned}
-          className="hidden size-12 shrink-0 items-center justify-center rounded-full text-ios-blue hover:bg-bubble-other md:flex"
-          aria-label={pinned ? "Collapse chat list" : "Keep chat list open"}
-          aria-pressed={pinned}
-          title={pinned ? "Collapse · opens on hover" : "Keep open"}
-        >
-          <SidebarIcon pinned={pinned} />
-        </button>
-        <div className={`min-w-0 flex-1 ${railHidden}`}>
-          <h1 className="text-[28px] font-bold leading-tight tracking-tight">Chats</h1>
-          <p className={`truncate text-[13px] ${connection === "offline" ? "text-ios-red" : "text-muted"}`}>
-            {connection === "online"
-              ? "LANDrop · on this Wi-Fi"
-              : connection === "connecting"
-                ? "connecting…"
-                : "Can't reach the host. Retrying…"}
-          </p>
-        </div>
-        <button
-          onClick={onInvite}
-          tabIndex={compact ? -1 : undefined}
-          className={`flex size-9 shrink-0 items-center justify-center rounded-full text-ios-blue hover:bg-bubble-other ${railHidden}`}
-          aria-label="Add a device: show QR code"
-          title="Add a device"
-        >
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <header className="flex h-16 shrink-0 items-center gap-1 px-4 pt-[env(safe-area-inset-top)] box-content md:box-border md:pl-5 md:pt-0">
+        <h1 className="flex-1 text-[22px] font-bold text-accent md:text-foreground">LANDrop</h1>
+        <button onClick={onInvite} className={`${ICON_BUTTON} md:hidden`} aria-label="Add a device: show QR code" title="Add a device">
           <QrIcon />
         </button>
-        <button
-          onClick={onRename}
-          tabIndex={compact ? -1 : undefined}
-          className={`shrink-0 rounded-full ${railHidden}`}
-          aria-label={`You are ${selfName ?? "joining"}. Change your name`}
-          title={`${selfName ?? ""} · tap to rename`}
-        >
-          <Avatar name={selfName ?? "?"} />
+        <button onClick={onNewChat} className={`${ICON_BUTTON} hidden md:flex`} aria-label="New chat" title="New chat">
+          <NewChatIcon />
         </button>
+        <DropdownMenu
+          label="Menu"
+          items={[
+            { label: "New chat", onSelect: onNewChat },
+            { label: "Add a device", onSelect: onInvite },
+            { label: "Settings", onSelect: onSettings },
+          ]}
+        />
       </header>
 
-      <ul className="flex-1 overflow-y-auto" aria-label="Chats">
-        {chats.map((chat) => (
+      {connection !== "online" && (
+        <p
+          role="status"
+          className={`mx-3 mb-2 flex items-center gap-3 rounded-lg px-4 py-3 text-[14px] ${
+            connection === "offline" ? "bg-banner text-banner-ink" : "text-muted"
+          }`}
+        >
+          <WifiIcon size={20} />
+          {connection === "offline" ? "Can't reach the LANDrop host. Retrying…" : "Connecting…"}
+        </p>
+      )}
+
+      <label className="mx-3 flex h-9 shrink-0 items-center gap-5 rounded-lg bg-field px-3 text-muted">
+        <SearchIcon size={18} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search or start a new chat"
+          aria-label="Search chats"
+          className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted select-text [-webkit-user-select:text]"
+        />
+      </label>
+      <div className="flex shrink-0 gap-2 px-3 pb-1.5 pt-2.5" role="group" aria-label="Filter chats">
+        {FILTERS.map((f) => (
+          <button
+            key={f.id}
+            onClick={() => setFilter(f.id)}
+            aria-pressed={filter === f.id}
+            className={`rounded-full px-3.5 py-1 text-[14px] ${
+              filter === f.id ? "bg-chip-on text-chip-on-ink" : "bg-field text-muted hover:brightness-95"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      <ul className="flex-1 overflow-y-auto pb-20 md:pb-0" aria-label="Chats">
+        {shown.map((chat) => (
           <li key={chat.id}>
             <button
               {...pressable(chat)}
               aria-current={chat.id === activeId ? "page" : undefined}
-              title={compact ? chat.title : undefined}
-              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left ${
-                chat.id === activeId ? "bg-bubble-other" : "active:bg-bubble-other md:hover:bg-bubble-other/60"
+              className={`flex h-[72px] w-full items-center gap-[15px] pl-[13px] text-left ${
+                chat.id === activeId ? "bg-field" : "hover:bg-hover active:bg-hover"
               }`}
             >
-              <span className="relative shrink-0">
-                <ChatAvatar chat={chat} />
-                {compact && chat.unread > 0 && (
-                  <UnreadBadge count={chat.unread} className="absolute -top-1 -right-1.5 border-2 border-background" />
-                )}
-              </span>
-              <div className={`min-w-0 flex-1 border-b border-separator/60 pb-2.5 ${railHidden}`}>
+              <ChatAvatar chat={chat} />
+              <div className="flex h-full min-w-0 flex-1 flex-col justify-center border-b border-divider pr-[15px]">
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="truncate text-[17px] font-semibold">{chat.title}</p>
+                  <p className="truncate text-[17px]">{chat.title}</p>
                   {chat.lastAt !== undefined && (
-                    <span className={`shrink-0 text-[13px] ${chat.unread ? "text-ios-blue" : "text-muted"}`}>
+                    <span className={`shrink-0 text-[12px] ${chat.unread ? "text-accent" : "text-muted"}`}>
                       {formatListTime(chat.lastAt)}
                     </span>
                   )}
                 </div>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="line-clamp-2 text-[15px] leading-5 text-muted">
-                    {chat.preview ?? "No messages yet"}
+                <div className="mt-0.5 flex items-center justify-between gap-2">
+                  <p className="flex min-w-0 items-center gap-1 text-[14px] text-muted">
+                    <Preview text={chat.preview} />
                   </p>
                   {chat.unread > 0 && <UnreadBadge count={chat.unread} />}
                 </div>
@@ -129,27 +149,43 @@ export function ChatList({
             </button>
           </li>
         ))}
-        <li>
-          <button
-            onClick={onNewChat}
-            title={compact ? "Start a chat" : undefined}
-            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-ios-blue active:bg-bubble-other md:hover:bg-bubble-other/60"
-          >
-            <span aria-hidden className="flex size-12 shrink-0 items-center justify-center rounded-full bg-bubble-other">
-              <PlusIcon />
-            </span>
-            <span className={`text-[17px] font-semibold ${railHidden}`}>Start a chat</span>
-          </button>
-        </li>
+        {shown.length === 0 && (q || filter !== "all") && (
+          <li className="px-8 py-10 text-center text-[14px] text-muted">
+            {q ? `No chats match “${query.trim()}”.` : filter === "unread" ? "No unread chats." : "No private chats yet."}
+          </li>
+        )}
       </ul>
+
+      {/* WhatsApp's floating "new chat" button, on phones. */}
+      <button
+        onClick={onNewChat}
+        aria-label="New chat"
+        className="absolute bottom-4 right-4 flex size-14 items-center justify-center rounded-2xl bg-accent text-white shadow-lg md:hidden"
+      >
+        <NewChatIcon />
+      </button>
     </div>
   );
 }
 
-function UnreadBadge({ count, className = "" }: { count: number; className?: string }) {
+/** Your own last message gets WhatsApp's tick instead of a "You:" label. */
+function Preview({ text }: { text?: string }) {
+  if (!text) return <span className="truncate">No messages yet</span>;
+  if (!text.startsWith("You: ")) return <span className="truncate">{text}</span>;
+  return (
+    <>
+      <span className="shrink-0 text-muted">
+        <TickIcon />
+      </span>
+      <span className="truncate">{text.slice(5)}</span>
+    </>
+  );
+}
+
+function UnreadBadge({ count }: { count: number }) {
   return (
     <span
-      className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-ios-blue px-1.5 text-[12px] font-semibold text-white ${className}`}
+      className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-accent px-1.5 text-[12px] font-bold text-panel"
       aria-label={`${count} unread`}
     >
       {count > 99 ? "99+" : count}
@@ -157,20 +193,27 @@ function UnreadBadge({ count, className = "" }: { count: number; className?: str
   );
 }
 
-export function ChatAvatar({ chat }: { chat: Pick<ChatSummary, "title" | "isGroup" | "online"> }) {
+export function ChatAvatar({
+  chat,
+  size = "list",
+}: {
+  chat: Pick<ChatSummary, "id" | "title" | "isGroup" | "online">;
+  size?: "list" | "header";
+}) {
+  const box = size === "list" ? "size-[49px]" : "size-10";
   return (
     <span className="relative shrink-0">
       {chat.isGroup ? (
-        <span aria-hidden className="flex size-12 items-center justify-center rounded-full bg-ios-blue text-white">
-          <GroupIcon />
+        <span aria-hidden className={`flex items-center justify-center rounded-full bg-accent text-white ${box}`}>
+          <WifiIcon size={size === "list" ? 26 : 22} />
         </span>
       ) : (
-        <Avatar name={chat.title} size="list" />
+        <Avatar name={chat.title} seed={chat.id} size={size} />
       )}
       {chat.online && !chat.isGroup && (
         <span
           aria-label="online"
-          className="absolute bottom-0 right-0 size-3.5 rounded-full border-2 border-background bg-ios-green"
+          className="absolute bottom-0 right-0 size-3.5 rounded-full border-2 border-panel bg-accent"
         />
       )}
     </span>

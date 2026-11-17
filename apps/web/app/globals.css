@@ -1,48 +1,166 @@
 @import "tailwindcss";
 
-/* iOS Messages palette. System fonts only: the app must work with no internet connection. */
+/* WhatsApp-style palette. System fonts only: the app must work with no internet connection. */
 :root {
-  --background: #ffffff;
-  --foreground: #000000;
-  --muted: #8e8e93;
-  --separator: #c6c6c8;
-  --bar: #f9f9f9;
-  --bubble-other: #e9e9eb;
-  --ios-blue: #007aff;
-  --ios-green: #34c759;
-  --ios-red: #ff3b30;
+  --app: #d1d7db;
+  --panel: #ffffff;
+  --bar: #f0f2f5;
+  --hover: #f5f6f6;
+  --field: #f0f2f5;
+  --foreground: #111b21;
+  --muted: #667781;
+  --divider: #e9edef;
+  --wall: #efeae2;
+  --doodle: #ddd5c8;
+  --bubble-in: #ffffff;
+  --tick: #53bdeb;
+  --danger: #ea0038;
+  --banner: #fff4c2;
+  --banner-ink: #54460a;
+  /* Accent: WhatsApp green unless the user picked blue in Settings. */
+  --accent: #00a884;
+  --bubble-out: #d9fdd3;
+  --bubble-out-ink: #111b21;
+  --chip-on: #e7fce3;
+  --chip-on-ink: #008069;
   color-scheme: light dark;
+}
+
+:root.accent-blue {
+  --accent: #1f6bff;
+  --bubble-out: #d6e6ff;
+  --chip-on: #e3edff;
+  --chip-on-ink: #1747b8;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #000000;
-    --foreground: #ffffff;
-    --muted: #8e8e93;
-    --separator: #38383a;
-    --bar: #1c1c1e;
-    --bubble-other: #262629;
-    --ios-blue: #0a84ff;
-    --ios-green: #30d158;
-    --ios-red: #ff453a;
+    --app: #0b141a;
+    --panel: #111b21;
+    --bar: #202c33;
+    --hover: #202c33;
+    --field: #2a3942;
+    --foreground: #e9edef;
+    --muted: #8696a0;
+    --divider: #222d34;
+    --wall: #0b141a;
+    --doodle: #1c272e;
+    --bubble-in: #202c33;
+    --danger: #f15c6d;
+    --banner: #3b3412;
+    --banner-ink: #f5e7a3;
+    --bubble-out: #005c4b;
+    --bubble-out-ink: #e9edef;
+    --chip-on: #103529;
+    --chip-on-ink: #00a884;
+  }
+  :root.accent-blue {
+    --accent: #3b82f6;
+    --bubble-out: #144d9e;
+    --chip-on: #13294d;
+    --chip-on-ink: #7fb0ff;
   }
 }
 
 @theme inline {
-  --color-background: var(--background);
+  --color-app: var(--app);
+  --color-panel: var(--panel);
+  --color-bar: var(--bar);
+  --color-hover: var(--hover);
+  --color-field: var(--field);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
-  --color-separator: var(--separator);
-  --color-bar: var(--bar);
-  --color-bubble-other: var(--bubble-other);
-  --color-ios-blue: var(--ios-blue);
-  --color-ios-green: var(--ios-green);
-  --color-ios-red: var(--ios-red);
+  --color-divider: var(--divider);
+  --color-wall: var(--wall);
+  --color-bubble-in: var(--bubble-in);
+  --color-bubble-out: var(--bubble-out);
+  --color-bubble-out-ink: var(--bubble-out-ink);
+  --color-tick: var(--tick);
+  --color-danger: var(--danger);
+  --color-banner: var(--banner);
+  --color-banner-ink: var(--banner-ink);
+  --color-accent: var(--accent);
+  --color-chip-on: var(--chip-on);
+  --color-chip-on-ink: var(--chip-on-ink);
 }
 
 body {
-  background: var(--background);
+  background: var(--app);
   color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The chat background: our own doodles, tinted per theme through a mask so one file serves both. */
+.wallpaper {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--wall);
+}
+.wallpaper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--doodle);
+  -webkit-mask: url("/doodles.svg") repeat;
+  mask: url("/doodles.svg") repeat;
+  -webkit-mask-size: 432px;
+  mask-size: 432px;
+  pointer-events: none;
+}
+
+/* A bubble's tail: the small corner WhatsApp puts on the first message of a run. */
+.tail-in::before,
+.tail-out::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 13px;
+}
+.tail-in::before {
+  left: -8px;
+  background: var(--bubble-in);
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+.tail-out::before {
+  right: -8px;
+  background: var(--bubble-out);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+/* Bottom sheets slide up over a fading backdrop. */
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+.sheet {
+  animation: sheet-in 280ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.sheet-backdrop {
+  animation: backdrop-in 200ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .sheet-backdrop {
+    animation: none;
+  }
+}
+
+/*
+ * Figma-style squircle corners: rounded corners with smooth, continuous curvature instead of a
+ * circular arc. Circles (rounded-full) stay circles. Browsers without corner-shape (Safari for now)
+ * keep ordinary rounded corners.
+ */
+@supports (corner-shape: squircle) {
+  :not(.rounded-full) {
+    corner-shape: superellipse(1.5);
+  }
 }

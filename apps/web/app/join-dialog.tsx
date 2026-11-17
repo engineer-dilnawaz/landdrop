@@ -2,7 +2,7 @@
 
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
-import { copyText } from "./ui";
+import { FILLED_BUTTON, Sheet, copyText } from "./ui";
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -51,26 +51,14 @@ export function JoinDialog({
     };
   }, [url]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-8" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="join-title"
-        className="w-full max-w-[300px] overflow-hidden rounded-[14px] bg-bar/95 text-center backdrop-blur-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex flex-col items-center px-5 pb-4 pt-5">
-          <h2 id="join-title" className="text-[17px] font-semibold">
+    <Sheet labelledBy="join-title" onClose={onClose} className="text-center">
+      <div className="px-6 pt-3">
+        <div className="flex flex-col items-center">
+          <h2 id="join-title" className="text-[20px] font-medium">
             Join LANDrop
           </h2>
-          <p className="mt-0.5 text-[13px] text-muted">Scan with a phone camera. It must be on the same Wi-Fi.</p>
+          <p className="mt-1 text-[14px] text-muted">Scan with a phone camera. It must be on the same Wi-Fi.</p>
           {/* Always dark on white: cameras read QR codes best that way, in light or dark mode. */}
           <div className="mt-4 flex size-60 items-center justify-center rounded-xl bg-white p-2">
             {qr && url ? (
@@ -87,7 +75,7 @@ export function JoinDialog({
               onClick={() => {
                 if (copyText(url)) setCopied(true);
               }}
-              className="mt-3 rounded-full bg-bubble-other px-3 py-1 font-mono text-[13px]"
+              className="mt-4 rounded-full bg-field px-4 py-1.5 font-mono text-[13px] hover:brightness-95"
               aria-label={`Copy ${url}`}
             >
               {copied ? "Copied" : url.replace(/^https?:\/\//, "")}
@@ -104,7 +92,7 @@ export function JoinDialog({
                     setCopied(false);
                   }}
                   aria-pressed={i === chosen}
-                  className={`rounded-full px-2.5 py-0.5 text-[12px] ${i === chosen ? "bg-ios-blue text-white" : "text-ios-blue"}`}
+                  className={`rounded-full px-3 py-1 text-[12px] ${i === chosen ? "bg-chip-on text-chip-on-ink" : "text-muted hover:bg-hover"}`}
                 >
                   {new URL(u).hostname}
                 </button>
@@ -112,10 +100,10 @@ export function JoinDialog({
             </div>
           )}
         </div>
-        <button onClick={onClose} className="w-full border-t border-separator py-2.5 text-[17px] font-semibold text-ios-blue">
+        <button onClick={onClose} className={`${FILLED_BUTTON} mt-6 w-full`}>
           Done
         </button>
       </div>
-    </div>
+    </Sheet>
   );
 }

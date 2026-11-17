@@ -5,7 +5,7 @@ import { z } from "zod";
  * Bump PROTOCOL_VERSION on any incompatible change; the server refuses
  * clients that speak a different version instead of misinterpreting them.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 export const DEFAULT_LAN_PORT = 4545;
 export const API_PREFIX = "/api/v1";
 
@@ -47,7 +47,7 @@ const DeviceNameSchema = z.string().trim().min(1).max(MAX_DEVICE_NAME_LENGTH);
 
 // ---------- Chats ----------
 
-/** The chat every device is in. */
+/** The chat every device is in ("LANDrop group"). Groups of chosen devices are `Group`s. */
 export const GROUP_CHAT_ID = "group";
 
 /** A private chat between two devices has one id, whichever of them asks for it. */
@@ -63,7 +63,41 @@ export function chatMembers(chatId: string): "everyone" | [string, string] | und
   return match && match[1] < match[2] ? [match[1], match[2]] : undefined;
 }
 
-const ChatIdSchema = z.string().refine((id) => chatMembers(id) !== undefined, "Unknown chat");
+/** A group's id is also its chat id. Its members aren't in the id: only the host knows them. */
+export const isGroupId = (id: string) => /^grp:[0-9a-f]{32}$/.test(id);
+
+const ChatIdSchema = z.string().refine((id) => chatMembers(id) !== undefined || isGroupId(id), "Unknown chat");
+
+// ---------- Groups ----------
+
+export const MAX_GROUP_NAME_LENGTH = 64;
+export const MAX_GROUP_MEMBERS = 32;
+
+/** A chat between chosen devices. Only its members see it, its messages and its files. */
+export interface Group {
+  id: string;
+  name: string;
+  /** Device ids, including whoever created it. */
+  members: string[];
+  createdBy: string;
+  createdAt: number;
+}
+
+const DeviceIdSchema = z.string().regex(/^[0-9a-f]{32}$/);
+const GroupNameSchema = z.string().trim().min(1).max(MAX_GROUP_NAME_LENGTH);
+
+/** The creator joins automatically; `members` are the others. */
+export const CreateGroupRequestSchema = z.object({
+  name: GroupNameSchema,
+  members: z.array(DeviceIdSchema).min(1).max(MAX_GROUP_MEMBERS - 1),
+});
+export type CreateGroupRequest = z.input<typeof CreateGroupRequestSchema>;
+
+/** Any member can rename a group or add devices to it. */
+export const UpdateGroupRequestSchema = z
+  .object({ name: GroupNameSchema.optional(), addMembers: z.array(DeviceIdSchema).min(1).max(MAX_GROUP_MEMBERS).optional() })
+  .refine((r) => r.name !== undefined || r.addMembers !== undefined, "Nothing to change");
+export type UpdateGroupRequest = z.input<typeof UpdateGroupRequestSchema>;
 
 // ---------- Messages ----------
 
@@ -176,10 +210,16 @@ export type ServerEvent =
       /** Every device that has joined, with its current name, so renames show on earlier messages too. */
       directory: KnownDevice[];
       messages: Message[];
+      /** The groups this device is in. */
+      groups: Group[];
       /** True only for the machine running the LAN server. */
       isHost: boolean;
     }
   | { type: "presence:update"; online: Device[] }
+  /** To a group's members whenever it is created, renamed or gains or loses members. */
+  | { type: "group:updated"; group: Group }
+  /** To every tab of a device that left a group: forget it. */
+  | { type: "group:left"; groupId: string }
   /** To every tab of the device that deleted the chat: drop its messages up to `before`. */
   | { type: "chat:cleared"; chatId: string; before: number }
   | { type: "message:created"; message: Message }
@@ -206,6 +246,12 @@ export const routes = {
   network: `${API_PREFIX}/network`,
   ws: `${API_PREFIX}/ws`,
   messages: `${API_PREFIX}/messages`,
+  /** POST CreateGroupRequest → Group. */
+  groups: `${API_PREFIX}/groups`,
+  /** PATCH UpdateGroupRequest → Group. */
+  group: (id: string) => `${API_PREFIX}/groups/${id}`,
+  /** POST: this device leaves the group. */
+  leaveGroup: (id: string) => `${API_PREFIX}/groups/${id}/leave`,
   /** DELETE: deletes the chat's history for this device only; the others in it keep theirs. */
   chat: (id: string) => `${API_PREFIX}/chats/${id}`,
   message: (id: string) => `${API_PREFIX}/messages/${id}`,

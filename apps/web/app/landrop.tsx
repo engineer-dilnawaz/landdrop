@@ -8,20 +8,23 @@ import {
   MAX_ATTACHMENT_BYTES,
   PROTOCOL_VERSION,
   chatMembers,
+  isGroupId,
   previewKind,
   privateChatId,
   routes,
   type ClientMessage,
   type Device,
+  type Group,
   type KnownDevice,
   type Message,
   type NetworkDevice,
   type ServerEvent,
 } from "@landrop/protocol";
-import { ChatList, type ChatSummary } from "./chat-list";
+import { ChatList, type ChatKind, type ChatSummary } from "./chat-list";
 import { ChatView, type OpenChat } from "./chat-view";
 import { guessDeviceName } from "./device-name";
 import { DevicePicker, type PickableDevice } from "./device-picker";
+import { GroupInfoSheet, GroupMembersSheet, type Contact } from "./group-sheets";
 import { JoinDialog } from "./join-dialog";
 import { BottomTabs, Rail, type Panel } from "./nav";
 import { Settings } from "./settings";
@@ -65,6 +68,8 @@ interface State {
   /** Every known device by id with its current name, so renames apply to earlier messages too. */
   devices: Record<string, KnownDevice>;
   messages: Message[];
+  /** The groups this device is in, by id. */
+  groups: Record<string, Group>;
   progress: Record<string, Progress>;
   /** Newest message time read in each chat on this device ("*" covers chats never opened). Server clock. */
   readAt?: Record<string, number>;
@@ -79,7 +84,7 @@ type Action =
   | { type: "loadRead"; stored: Record<string, number> | null }
   | { type: "read"; chatId: string };
 
-const initialState: State = { connection: "connecting", isHost: false, online: [], devices: {}, messages: [], progress: {} };
+const initialState: State = { connection: "connecting", isHost: false, online: [], devices: {}, messages: [], groups: {}, progress: {} };
 
 function upsert(messages: Message[], message: Message): Message[] {
   const index = messages.findIndex((m) => m.id === message.id);
@@ -150,9 +155,17 @@ function reducer(state: State, action: Action): State {
         online: e.online,
         devices: withPresence(Object.fromEntries(e.directory.map((d) => [d.id, d])), [], e.online),
         messages: e.messages,
+        groups: Object.fromEntries(e.groups.map((g) => [g.id, g])),
       };
     case "presence:update":
       return { ...state, online: e.online, devices: withPresence(state.devices, state.online, e.online) };
+    case "group:updated":
+      return { ...state, groups: { ...state.groups, [e.group.id]: e.group } };
+    case "group:left": {
+      const groups = { ...state.groups };
+      delete groups[e.groupId];
+      return { ...state, groups, messages: state.messages.filter((m) => m.chatId !== e.groupId) };
+    }
     case "chat:cleared":
       return { ...state, messages: state.messages.filter((m) => m.chatId !== e.chatId || m.createdAt > e.before) };
     case "message:created":
@@ -217,7 +230,8 @@ async function serveLiveRange(
 
 function chatIdFromHash(): string | undefined {
   const match = /^#\/chat\/(.+)$/.exec(location.hash);
-  return match && chatMembers(decodeURIComponent(match[1])) ? decodeURIComponent(match[1]) : undefined;
+  const id = match && decodeURIComponent(match[1]);
+  return id && (chatMembers(id) || isGroupId(id)) ? id : undefined;
 }
 
 export default function LanDrop() {
@@ -233,6 +247,10 @@ export default function LanDrop() {
   const [selected, setSelected] = useState<Message>();
   /** The chat whose press-and-hold menu is open in the list. */
   const [heldChat, setHeldChat] = useState<ChatSummary>();
+  /** Picking devices for a new group, or to add to the open group. */
+  const [groupPicker, setGroupPicker] = useState<"create" | "add">();
+  const [groupInfo, setGroupInfo] = useState(false);
+  const [leaving, setLeaving] = useState<Group>();
   const [dragging, setDragging] = useState(false);
   /** The name dialog: "rename" from the avatar, "welcome" when a new device first joins. */
   const [renaming, setRenaming] = useState<"rename" | "welcome">();
@@ -405,9 +423,12 @@ export default function LanDrop() {
     setReplyTo(undefined);
     setFiles([]);
     if (id) {
-      location.hash = `/chat/${encodeURIComponent(id)}`;
-      // Marks the entry as opened from inside LANDrop, so closing can go back to the list.
-      history.replaceState({ openedHere: true }, "");
+      // Marked as opened from inside LANDrop, so closing can go back to the list. Like WhatsApp, only one
+      // chat sits above the list: switching chats replaces it, so Back always returns to the list.
+      const url = `#/chat/${encodeURIComponent(id)}`;
+      if (history.state?.openedHere && chatIdFromHash()) history.replaceState(history.state, "", url);
+      else history.pushState({ openedHere: true }, "", url);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
     } else if (chatIdFromHash()) {
       // The phone's back gesture keeps working; a chat opened straight from a link has no list to go back to.
       if (history.state?.openedHere) history.back();
@@ -508,11 +529,45 @@ export default function LanDrop() {
   async function deleteChat(chat: ChatSummary) {
     setHeldChat(undefined);
     // A phone used from several browsers is one chat here, but one chat per browser on the host.
-    const ids = chat.isGroup ? [chat.id] : (people.find((p) => p.id === chat.id)?.chatIds ?? [chat.id]);
+    const ids = chat.kind !== "private" ? [chat.id] : (people.find((p) => p.id === chat.id)?.chatIds ?? [chat.id]);
     try {
       await Promise.all(ids.map((id) => api(routes.chat(id), "DELETE")));
     } catch (err) {
       dispatch({ type: "notice", notice: `Couldn't delete the chat: ${(err as Error).message}` });
+    }
+  }
+
+  async function createGroup(deviceIds: string[], name: string) {
+    // Your other browsers join too, so the group shows wherever you open LANDrop.
+    const ownBrowsers = Object.values(state.devices).filter((d) => d.id !== selfId && selfMachine && d.machine === selfMachine);
+    try {
+      const group = await api<Group>(routes.groups, "POST", { name, members: [...deviceIds, ...ownBrowsers.map((d) => d.id)] });
+      dispatch({ type: "event", event: { type: "group:updated", group } });
+      setGroupPicker(undefined);
+      setPanel("chats");
+      openChat(group.id);
+    } catch (err) {
+      dispatch({ type: "notice", notice: `Couldn't create the group: ${(err as Error).message}` });
+    }
+  }
+
+  async function updateGroup(id: string, change: { name?: string; addMembers?: string[] }) {
+    try {
+      dispatch({ type: "event", event: { type: "group:updated", group: await api<Group>(routes.group(id), "PATCH", change) } });
+      setGroupPicker(undefined);
+    } catch (err) {
+      dispatch({ type: "notice", notice: `Couldn't change the group: ${(err as Error).message}` });
+    }
+  }
+
+  async function leaveGroup(group: Group) {
+    setLeaving(undefined);
+    setGroupInfo(false);
+    if (activeChat?.id === group.id) openChat(undefined);
+    try {
+      await api(routes.leaveGroup(group.id), "POST");
+    } catch (err) {
+      dispatch({ type: "notice", notice: `Couldn't leave the group: ${(err as Error).message}` });
     }
   }
 
@@ -539,6 +594,7 @@ export default function LanDrop() {
   });
 
   const otherDevices = selfId ? Object.values(state.devices).filter((d) => d.id !== selfId) : [];
+  const selfMachine = selfId ? state.devices[selfId]?.machine : undefined;
   const people = selfId
     ? contacts(otherDevices, state.devices[selfId]?.machine).map((members) => {
         const online = members.filter((d) => isOnline(d.id));
@@ -551,6 +607,7 @@ export default function LanDrop() {
           online: online.length > 0,
           lastSeen,
           chatIds: members.map((d) => privateChatId(selfId, d.id)),
+          deviceIds: members.map((d) => d.id),
         };
       })
     : [];
@@ -560,13 +617,18 @@ export default function LanDrop() {
   const others = state.online.filter((d) => d.id !== selfId);
   const activeChat = ((): (OpenChat & { chatIds: string[] }) | undefined => {
     if (!chatId || !selfId) return undefined;
+    const group = state.groups[chatId];
+    if (group) {
+      const names = group.members.filter((id) => id !== selfId).map((id) => nameOf(id, "Unknown device"));
+      return { id: chatId, chatIds: [chatId], title: group.name, kind: "group", online: false, subtitle: [...names, "You"].join(", ") };
+    }
     const members = chatMembers(chatId);
     if (members === "everyone") {
       return {
         id: chatId,
         chatIds: [chatId],
         title: "LANDrop group",
-        isGroup: true,
+        kind: "everyone",
         online: false,
         subtitle: others.length ? [...others.map((d) => d.name), "You"].join(", ") : "Only you are online",
       };
@@ -583,7 +645,7 @@ export default function LanDrop() {
       lastSeen: other.lastSeen,
       chatIds: [chatId],
     };
-    return { id, chatIds, title: name, isGroup: false, online, subtitle: online ? "online" : formatLastSeen(lastSeen) };
+    return { id, chatIds, title: name, kind: "private", online, subtitle: online ? "online" : formatLastSeen(lastSeen) };
   })();
   const chatMessages = activeChat ? state.messages.filter((m) => activeChat.chatIds.includes(m.chatId)) : [];
 
@@ -596,32 +658,39 @@ export default function LanDrop() {
     const read = state.readAt?.[m.chatId] ?? state.readAt?.["*"] ?? Infinity;
     if (m.senderId !== selfId && m.createdAt > read) unreadByChat.set(m.chatId, (unreadByChat.get(m.chatId) ?? 0) + 1);
   }
-  const summarize = (id: string, title: string, isGroup: boolean, online: boolean, chatIds = [id]): ChatSummary => {
+  const summarize = (id: string, title: string, kind: ChatKind, online: boolean, chatIds = [id]): ChatSummary => {
     const last = chatIds
       .map((c) => lastByChat.get(c))
       .reduce<Message | undefined>((a, b) => (!b || (a && a.createdAt >= b.createdAt) ? a : b), undefined);
-    const who = !last ? "" : last.senderId === selfId ? "You: " : isGroup ? `${nameOf(last.senderId, last.senderName)}: ` : "";
+    const who = !last ? "" : last.senderId === selfId ? "You: " : kind !== "private" ? `${nameOf(last.senderId, last.senderName)}: ` : "";
     return {
       id,
       title,
-      isGroup,
+      kind,
       online,
       preview: last && who + messagePreview(last),
       lastAt: last?.createdAt,
       unread: chatIds.reduce((sum, c) => sum + (unreadByChat.get(c) ?? 0), 0),
     };
   };
-  // Like WhatsApp: the group plus conversations that have happened. A private chat opened from the
-  // device list shows while it's open, and drops out again if it's left without a message.
+  // Like WhatsApp: the LANDrop group, your groups, and conversations that have happened. A private chat
+  // opened from the device list shows while it's open, and drops out again if it's left without a message.
   const chats: ChatSummary[] = selfId
     ? [
-        summarize(GROUP_CHAT_ID, "LANDrop group", true, false),
-        ...people.map((p) => summarize(p.id, p.name, false, p.online, p.chatIds)),
+        summarize(GROUP_CHAT_ID, "LANDrop group", "everyone", false),
+        ...Object.values(state.groups).map((g) => summarize(g.id, g.name, "group", false)),
+        ...people.map((p) => summarize(p.id, p.name, "private", p.online, p.chatIds)),
       ]
-        .filter((c) => c.isGroup || c.lastAt !== undefined || c.id === activeChat?.id)
+        .filter((c) => c.kind !== "private" || c.lastAt !== undefined || c.id === activeChat?.id)
         // Most recent conversation first; an empty one just opened sits at the end.
         .sort((a, b) => (b.lastAt ?? -1) - (a.lastAt ?? -1))
     : [];
+  const openGroup = activeChat?.kind === "group" ? state.groups[activeChat.id] : undefined;
+  /** Phones and computers that can be put in a group: all of them for a new one, those not in it yet for the open one. */
+  const groupContacts: Contact[] = people
+    .filter((p) => groupPicker !== "add" || !p.deviceIds.some((id) => openGroup?.members.includes(id)))
+    .map((p) => ({ key: p.id, name: p.name, deviceIds: p.deviceIds, online: p.online, status: p.online ? "online" : formatLastSeen(p.lastSeen) }))
+    .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
   const pickableDevices: PickableDevice[] = people
     .map((p) => ({ chatId: p.id, name: p.name, online: p.online, status: p.online ? "online" : formatLastSeen(p.lastSeen) }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -699,6 +768,7 @@ export default function LanDrop() {
             onHold={setHeldChat}
             onInvite={() => setInviting(true)}
             onNewChat={() => setPanel("devices")}
+            onNewGroup={() => setGroupPicker("create")}
             onSettings={() => setPanel("settings")}
           />
         )}
@@ -725,12 +795,14 @@ export default function LanDrop() {
             }}
             onBack={() => openChat(undefined)}
             onInvite={() => setInviting(true)}
+            onGroupInfo={() => setGroupInfo(true)}
+            onLeaveGroup={() => setLeaving(openGroup)}
             onClearChat={() =>
               setHeldChat(
                 chats.find((c) => c.id === activeChat.id) ?? {
                   id: activeChat.id,
                   title: activeChat.title,
-                  isGroup: activeChat.isGroup,
+                  kind: activeChat.kind,
                   online: activeChat.online,
                   unread: 0,
                 },
@@ -807,13 +879,39 @@ export default function LanDrop() {
       {heldChat && (
         <ChatSheet
           title={heldChat.title}
-          isGroup={heldChat.isGroup}
-          onDelete={() => {
+          action={heldChat.kind === "private" ? "delete" : "clear"}
+          onConfirm={() => {
             // A deleted private chat leaves the list, so it can't stay open either.
-            if (!heldChat.isGroup && activeChat?.id === heldChat.id) openChat(undefined);
+            if (heldChat.kind === "private" && activeChat?.id === heldChat.id) openChat(undefined);
             void deleteChat(heldChat);
           }}
           onClose={() => setHeldChat(undefined)}
+        />
+      )}
+      {leaving && (
+        <ChatSheet title={leaving.name} action="leave" onConfirm={() => void leaveGroup(leaving)} onClose={() => setLeaving(undefined)} />
+      )}
+      {groupPicker && (
+        <GroupMembersSheet
+          mode={groupPicker}
+          contacts={groupContacts}
+          onSubmit={(ids, name) =>
+            groupPicker === "create" ? createGroup(ids, name) : openGroup ? updateGroup(openGroup.id, { addMembers: ids }) : Promise.resolve()
+          }
+          onClose={() => setGroupPicker(undefined)}
+        />
+      )}
+      {groupInfo && openGroup && !groupPicker && !leaving && (
+        <GroupInfoSheet
+          group={openGroup}
+          selfId={selfId}
+          nameOf={(id) => nameOf(id, "Unknown device")}
+          isOnline={isOnline}
+          canAdd={people.some((p) => !p.deviceIds.some((id) => openGroup.members.includes(id)))}
+          onRename={(name) => updateGroup(openGroup.id, { name })}
+          onAdd={() => setGroupPicker("add")}
+          onLeave={() => setLeaving(openGroup)}
+          onClose={() => setGroupInfo(false)}
         />
       )}
       {selected && (

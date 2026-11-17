@@ -13,6 +13,7 @@ import {
   previewKind,
   PROTOCOL_VERSION,
   routes,
+  type Group,
   type Message,
   type NetworkDevice,
   type ServerEvent,
@@ -234,6 +235,77 @@ describe("group chat", () => {
     await new Promise((r) => socket.once("open", r));
     socket.send(JSON.stringify({ type: "hello", protocolVersion: PROTOCOL_VERSION + 1, name: "Old", ...newIdentity() }));
     expect(await new Promise<number>((r) => socket.once("close", r))).toBe(1008);
+  });
+});
+
+describe("groups", () => {
+  async function team() {
+    const ids = { mac: newIdentity(), iphone: newIdentity(), galaxy: newIdentity(), tv: newIdentity() };
+    const mac = await join_("MacBook", ids.mac);
+    const iphone = await join_("iPhone", ids.iphone);
+    const galaxy = await join_("Galaxy", ids.galaxy);
+    const tv = await join_("Living room TV", ids.tv);
+    const res = await api(mac, "POST", routes.groups, { name: "Family", members: [ids.iphone.deviceId, ids.galaxy.deviceId] });
+    expect(res.status).toBe(201);
+    const group = (await res.json()) as Group;
+    return { ids, mac, iphone, galaxy, tv, group };
+  }
+
+  it("lets only the chosen devices see the group and what is shared in it", async () => {
+    const { ids, mac, galaxy, tv, group } = await team();
+    expect(group.members.sort()).toEqual([ids.mac.deviceId, ids.iphone.deviceId, ids.galaxy.deviceId].sort());
+    expect((await galaxy.waitFor("group:updated")).group.name).toBe("Family");
+
+    await api(mac, "POST", routes.messages, { chatId: group.id, text: "dinner at 8" });
+    expect((await galaxy.waitFor("message:created")).message.text).toBe("dinner at 8");
+    const file = await attach(mac, Buffer.from("menu"), "menu.txt", "text/plain", group.id);
+
+    // The TV isn't in it: it can't post, read the file, or find it in its history and groups.
+    expect((await api(tv, "POST", routes.messages, { chatId: group.id, text: "hi" })).status).toBe(403);
+    expect((await download(tv, file.id)).status).toBe(404);
+    const tvAgain = await join_("Living room TV", ids.tv);
+    expect(tvAgain.welcome.groups).toEqual([]);
+    expect(tvAgain.welcome.messages.some((m) => m.chatId === group.id)).toBe(false);
+    // A group message is never broadcast to it either: the first thing it hears is the LANDrop group.
+    await api(mac, "POST", routes.messages, { chatId: GROUP_CHAT_ID, text: "hello all" });
+    expect((await tv.waitFor("message:created")).message.text).toBe("hello all");
+  });
+
+  it("shows devices added later the messages from then on, not the group's history", async () => {
+    const { ids, mac, iphone, tv, group } = await team();
+    await api(mac, "POST", routes.messages, { chatId: group.id, text: "before the TV" });
+    await new Promise((r) => setTimeout(r, 5));
+    const res = await api(iphone, "PATCH", routes.group(group.id), { addMembers: [ids.tv.deviceId], name: "Home" });
+    expect((await res.json()) as Group).toMatchObject({ name: "Home" });
+    expect((await tv.waitFor("group:updated")).group.members).toContain(ids.tv.deviceId);
+    await new Promise((r) => setTimeout(r, 5));
+    await api(mac, "POST", routes.messages, { chatId: group.id, text: "welcome, TV" });
+    await tv.waitFor("message:created", (e) => e.message.text === "welcome, TV");
+
+    const tvAgain = await join_("Living room TV", ids.tv);
+    expect(tvAgain.welcome.messages.filter((m) => m.chatId === group.id).map((m) => m.text)).toEqual(["welcome, TV"]);
+  });
+
+  it("stops delivering to a device that leaves, and deletes the group when the last one leaves", async () => {
+    const { ids, mac, iphone, galaxy, group } = await team();
+    expect((await api(galaxy, "POST", routes.leaveGroup(group.id))).status).toBe(204);
+    expect(await galaxy.waitFor("group:left")).toMatchObject({ groupId: group.id });
+    expect((await iphone.waitFor("group:updated", (e) => e.group.members.length === 2)).group.members).not.toContain(ids.galaxy.deviceId);
+    expect((await api(galaxy, "POST", routes.messages, { chatId: group.id, text: "still here?" })).status).toBe(403);
+
+    const file = await attach(mac, Buffer.from("photo"), "photo.png", "image/png", group.id);
+    await upload(mac, file.id, Buffer.from("photo"));
+    await api(iphone, "POST", routes.leaveGroup(group.id));
+    await api(mac, "POST", routes.leaveGroup(group.id));
+    // Nobody can see it any more, so nothing of it is kept.
+    expect((await api(mac, "POST", routes.messages, { chatId: group.id, text: "anyone?" })).status).toBe(403);
+    expect(await readdir(join(dataDir, "files"))).not.toContain(file.id);
+  });
+
+  it("needs at least one other device that has joined", async () => {
+    const mac = await join_("MacBook");
+    const res = await api(mac, "POST", routes.groups, { name: "Just me", members: [randomBytes(16).toString("hex")] });
+    expect(res.status).toBe(400);
   });
 });
 

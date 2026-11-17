@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,11 +6,14 @@ import { DatabaseSync } from "node:sqlite";
 import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
+  MAX_GROUP_MEMBERS,
   chatMembers,
   isAvailable,
+  isGroupId,
   type Attachment,
   type AttachmentStatus,
   type Device,
+  type Group,
   type KnownDevice,
   type Message,
   type ServerEvent,
@@ -25,8 +28,8 @@ export class HttpError extends Error {
   }
 }
 
-/** Delivers an event to the members of a chat (everyone for the group). */
-type Broadcast = (event: ServerEvent, chatId: string) => void;
+/** Delivers an event to the members of a chat (everyone for the group), and to any extra devices named. */
+type Broadcast = (event: ServerEvent, chatId: string, alsoTo?: string[]) => void;
 
 interface MessageRow {
   id: string;
@@ -77,6 +80,17 @@ CREATE TABLE IF NOT EXISTS messages (
   att_sha256 TEXT
 );
 CREATE INDEX IF NOT EXISTS messages_created_at ON messages (created_at);
+CREATE TABLE IF NOT EXISTS groups (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS group_members (
+  group_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  PRIMARY KEY (group_id, device_id)
+);
 CREATE TABLE IF NOT EXISTS chat_clears (
   device_id TEXT NOT NULL,
   chat_id TEXT NOT NULL,
@@ -105,6 +119,7 @@ const REPLY_PREVIEW_LENGTH = 120;
  */
 export class ChatStore {
   private readonly uploads = new Map<string, Upload>();
+  private lastTime = 0;
 
   private constructor(
     private readonly db: DatabaseSync,
@@ -188,11 +203,12 @@ export class ChatStore {
       .prepare(
         `SELECT * FROM (
            SELECT *, rowid AS seq, ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY created_at DESC, rowid DESC) AS rank
-           FROM messages m WHERE (chat_id = 'group' OR chat_id LIKE ?)
+           FROM messages m WHERE (chat_id = 'group' OR chat_id LIKE ?
+             OR chat_id IN (SELECT group_id FROM group_members WHERE device_id = ?))
              AND created_at > COALESCE((SELECT cleared_at FROM chat_clears c WHERE c.device_id = ? AND c.chat_id = m.chat_id), -1)
          ) WHERE rank <= ? ORDER BY created_at, seq`,
       )
-      .all(`%${deviceId}%`, deviceId, limit) as unknown as MessageRow[];
+      .all(`%${deviceId}%`, deviceId, deviceId, limit) as unknown as MessageRow[];
     return rows.map(toMessage).filter((m) => this.canSee(m.chatId, deviceId));
   }
 
@@ -202,7 +218,7 @@ export class ChatStore {
    */
   clearChat(chatId: string, deviceId: string): number {
     if (!this.canSee(chatId, deviceId)) throw new HttpError(404, "Chat not found");
-    const before = Date.now();
+    const before = this.clock();
     this.db
       .prepare(
         `INSERT INTO chat_clears (device_id, chat_id, cleared_at) VALUES (?, ?, ?)
@@ -219,7 +235,7 @@ export class ChatStore {
       chatId,
       senderId: sender.id,
       senderName: sender.name,
-      createdAt: Date.now(),
+      createdAt: this.clock(),
       text,
       ...this.replyTo(replyToId, chatId),
     };
@@ -240,7 +256,7 @@ export class ChatStore {
       chatId,
       senderId: sender.id,
       senderName: sender.name,
-      createdAt: Date.now(),
+      createdAt: this.clock(),
       attachment: { ...file, status: live ? "live" : "uploading" },
       ...this.replyTo(replyToId, chatId),
     };
@@ -340,7 +356,7 @@ export class ChatStore {
   async remove(id: string, deviceId: string, isHost: boolean): Promise<void> {
     const message = this.get(id);
     if (!message || !this.canSee(message.chatId, deviceId)) throw new HttpError(404, "Message not found");
-    const moderating = isHost && chatMembers(message.chatId) === "everyone";
+    const moderating = isHost && this.members(message.chatId) === "everyone";
     if (message.senderId !== deviceId && !moderating) throw new HttpError(403, "You can only remove your own messages");
     this.uploads.get(id)?.controller.abort();
     this.uploads.delete(id);
@@ -357,18 +373,111 @@ export class ChatStore {
     this.broadcast({ type: "message:deleted", messageId: id, chatId: message.chatId, reason: "sender-offline" }, message.chatId);
   }
 
+  // ---------- Groups ----------
+
+  /** Who is in a chat: "everyone" for the LANDrop group, device ids for a private chat or group, undefined if there's no such chat. */
+  members(chatId: string): "everyone" | string[] | undefined {
+    if (!isGroupId(chatId)) return chatMembers(chatId);
+    const rows = this.db.prepare("SELECT device_id FROM group_members WHERE group_id = ?").all(chatId) as { device_id: string }[];
+    return rows.length ? rows.map((r) => r.device_id) : undefined;
+  }
+
+  /** The groups a device is in. */
+  groupsOf(deviceId: string): Group[] {
+    const ids = this.db.prepare("SELECT group_id FROM group_members WHERE device_id = ?").all(deviceId) as { group_id: string }[];
+    return ids.map((r) => this.group(r.group_id)!);
+  }
+
+  createGroup(creatorId: string, name: string, memberIds: string[]): Group {
+    const members = this.knownDevices([creatorId, ...memberIds]);
+    if (members.length < 2) throw new HttpError(400, "Choose at least one other device");
+    const id = `grp:${randomBytes(16).toString("hex")}`;
+    this.db.prepare("INSERT INTO groups (id, name, created_by, created_at) VALUES (?, ?, ?, ?)").run(id, name, creatorId, Date.now());
+    const add = this.db.prepare("INSERT INTO group_members (group_id, device_id) VALUES (?, ?)");
+    for (const member of members) add.run(id, member);
+    const group = this.group(id)!;
+    this.broadcast({ type: "group:updated", group }, id);
+    return group;
+  }
+
+  /** Any member may rename a group or add devices. Added devices see the group's messages from now on, not its history. */
+  updateGroup(id: string, deviceId: string, change: { name?: string; addMembers?: string[] }): Group {
+    const current = this.group(id);
+    if (!current?.members.includes(deviceId)) throw new HttpError(404, "Group not found");
+    if (change.name) this.db.prepare("UPDATE groups SET name = ? WHERE id = ?").run(change.name, id);
+    const added = this.knownDevices(change.addMembers ?? []).filter((m) => !current.members.includes(m));
+    if (current.members.length + added.length > MAX_GROUP_MEMBERS) throw new HttpError(400, `A group can have up to ${MAX_GROUP_MEMBERS} devices`);
+    const add = this.db.prepare("INSERT INTO group_members (group_id, device_id) VALUES (?, ?)");
+    const clear = this.db.prepare("INSERT OR REPLACE INTO chat_clears (device_id, chat_id, cleared_at) VALUES (?, ?, ?)");
+    const now = this.clock();
+    for (const member of added) {
+      add.run(id, member);
+      clear.run(member, id, now);
+    }
+    const group = this.group(id)!;
+    this.broadcast({ type: "group:updated", group }, id);
+    return group;
+  }
+
+  /** A device leaves a group. The last one out deletes it, with its messages and files. */
+  async leaveGroup(id: string, deviceId: string): Promise<void> {
+    const current = this.group(id);
+    if (!current?.members.includes(deviceId)) throw new HttpError(404, "Group not found");
+    this.db.prepare("DELETE FROM group_members WHERE group_id = ? AND device_id = ?").run(id, deviceId);
+    this.db.prepare("DELETE FROM chat_clears WHERE device_id = ? AND chat_id = ?").run(deviceId, id);
+    this.broadcast({ type: "group:left", groupId: id }, id, [deviceId]);
+    if (current.members.length > 1) {
+      this.broadcast({ type: "group:updated", group: this.group(id)! }, id);
+      return;
+    }
+    const files = this.db.prepare("SELECT id FROM messages WHERE chat_id = ? AND att_name IS NOT NULL").all(id) as { id: string }[];
+    for (const { id: messageId } of files) {
+      this.uploads.get(messageId)?.controller.abort();
+      this.uploads.delete(messageId);
+      await rm(this.filePath(messageId), { force: true });
+    }
+    this.db.prepare("DELETE FROM messages WHERE chat_id = ?").run(id);
+    this.db.prepare("DELETE FROM chat_clears WHERE chat_id = ?").run(id);
+    this.db.prepare("DELETE FROM groups WHERE id = ?").run(id);
+  }
+
+  private group(id: string): Group | undefined {
+    const row = this.db.prepare("SELECT id, name, created_by AS createdBy, created_at AS createdAt FROM groups WHERE id = ?").get(id) as
+      | Omit<Group, "members">
+      | undefined;
+    if (!row) return undefined;
+    const members = this.db.prepare("SELECT device_id FROM group_members WHERE group_id = ? ORDER BY device_id").all(id) as { device_id: string }[];
+    return { ...row, members: members.map((m) => m.device_id) };
+  }
+
+  /** The ids that belong to devices that have joined, without repeats. */
+  private knownDevices(ids: string[]): string[] {
+    const known = this.db.prepare("SELECT 1 FROM devices WHERE id = ?");
+    return [...new Set(ids)].filter((id) => known.get(id));
+  }
+
   // ---------- Internals ----------
 
-  /** Whether a device may read a chat: everyone may read the group; only the two members a private chat. */
+  /**
+   * Message and clear times, never the same twice: a message sent the same millisecond a chat was
+   * cleared (or a device added to a group) must still count as after it.
+   */
+  private clock(): number {
+    this.lastTime = Math.max(Date.now(), this.lastTime + 1);
+    return this.lastTime;
+  }
+
+  /** Whether a device may read a chat: everyone may read the LANDrop group; only their members a private chat or group. */
   private canSee(chatId: string, deviceId: string): boolean {
-    const members = chatMembers(chatId);
+    const members = this.members(chatId);
     return members === "everyone" || (members !== undefined && members.includes(deviceId));
   }
 
   private assertCanPost(chatId: string, deviceId: string): void {
-    const members = chatMembers(chatId);
+    const members = this.members(chatId);
     if (members === "everyone") return;
     if (!members?.includes(deviceId)) throw new HttpError(403, "You are not in this chat");
+    if (isGroupId(chatId)) return;
     const other = members[0] === deviceId ? members[1] : members[0];
     if (!this.db.prepare("SELECT 1 FROM devices WHERE id = ?").get(other)) throw new HttpError(404, "Unknown device");
   }

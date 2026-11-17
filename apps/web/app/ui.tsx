@@ -227,35 +227,37 @@ export function MessageSheet({
   );
 }
 
-/** Clear or delete a chat. Deleting only affects this device, like WhatsApp. */
+/** Clear or delete a chat, or leave a group. Clearing and deleting only affect this device, like WhatsApp. */
 export function ChatSheet({
   title,
-  isGroup,
-  onDelete,
+  action,
+  onConfirm,
   onClose,
 }: {
   title: string;
-  isGroup: boolean;
-  onDelete: () => void;
+  /** "clear" the LANDrop group or a group, "delete" a private chat, "leave" a group. */
+  action: "clear" | "delete" | "leave";
+  onConfirm: () => void;
   onClose: () => void;
 }) {
+  const text = {
+    clear: [`Clear ${title}?`, "All messages so far are removed from this device. Everyone else keeps theirs.", "Clear chat"],
+    delete: [`Delete chat with ${title}?`, `All messages are removed from this device. ${title} keeps their copy.`, "Delete chat"],
+    leave: [`Leave ${title}?`, "You'll stop getting its messages and files. The others can add you back.", "Leave group"],
+  }[action];
   return (
     <Sheet labelledBy="chat-sheet-title" onClose={onClose}>
       <div className="px-6 pt-3">
         <h2 id="chat-sheet-title" className="text-[20px] font-medium">
-          {isGroup ? "Clear the LANDrop group?" : `Delete chat with ${title}?`}
+          {text[0]}
         </h2>
-        <p className="mt-3 text-[14px] text-muted">
-          {isGroup
-            ? "All messages so far are removed from this device. Everyone else keeps theirs."
-            : `All messages are removed from this device. ${title} keeps their copy.`}
-        </p>
+        <p className="mt-3 text-[14px] text-muted">{text[1]}</p>
         <div className="mt-6 flex justify-end gap-2">
           <button onClick={onClose} className={TEXT_BUTTON} autoFocus>
             Cancel
           </button>
-          <button onClick={onDelete} className={`${FILLED_BUTTON} bg-danger`}>
-            {isGroup ? "Clear chat" : "Delete chat"}
+          <button onClick={onConfirm} className={`${FILLED_BUTTON} bg-danger`}>
+            {text[2]}
           </button>
         </div>
       </div>
@@ -397,6 +399,13 @@ export const TrashIcon = ({ size = 20 }: IconProps) => (
 export const ShareIcon = ({ size = 24 }: IconProps) => (
   <svg {...sized(size)}>
     <path d="M12 15V3.5m0 0L7.5 8M12 3.5 16.5 8M8 11H6.5A1.5 1.5 0 0 0 5 12.5v6A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-6a1.5 1.5 0 0 0-1.5-1.5H16" />
+  </svg>
+);
+
+export const PeopleIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M21.5 20a6.5 6.5 0 0 0-4-6" />
   </svg>
 );
 

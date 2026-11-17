@@ -7,17 +7,22 @@ import {
   DropdownMenu,
   ICON_BUTTON,
   NewChatIcon,
+  PeopleIcon,
   QrIcon,
   SearchIcon,
   TickIcon,
   WifiIcon,
+  colourFor,
   formatTime,
 } from "./ui";
+
+/** The LANDrop group everyone is in, a private chat with one device, or a group of chosen devices. */
+export type ChatKind = "everyone" | "private" | "group";
 
 export interface ChatSummary {
   id: string;
   title: string;
-  isGroup: boolean;
+  kind: ChatKind;
   online: boolean;
   /** Last message line, already prefixed with "You: " or the sender's name in the group. */
   preview?: string;
@@ -25,11 +30,12 @@ export interface ChatSummary {
   unread: number;
 }
 
-/** WhatsApp's filter chips. A "Groups" chip joins these once private groups exist. */
+/** WhatsApp's filter chips. */
 const FILTERS = [
   { id: "all", label: "All", keep: () => true },
   { id: "unread", label: "Unread", keep: (c: ChatSummary) => c.unread > 0 },
-  { id: "private", label: "Private", keep: (c: ChatSummary) => !c.isGroup },
+  { id: "private", label: "Private", keep: (c: ChatSummary) => c.kind === "private" },
+  { id: "groups", label: "Groups", keep: (c: ChatSummary) => c.kind === "group" },
 ] as const;
 
 export function ChatList({
@@ -40,6 +46,7 @@ export function ChatList({
   onHold,
   onInvite,
   onNewChat,
+  onNewGroup,
   onSettings,
 }: {
   chats: ChatSummary[];
@@ -52,6 +59,8 @@ export function ChatList({
   onInvite: () => void;
   /** Opens the list of devices to start a private chat with. */
   onNewChat: () => void;
+  /** Starts a group of chosen devices. */
+  onNewGroup: () => void;
   onSettings: () => void;
 }) {
   const pressable = usePressAndHold(onOpen, onHold);
@@ -76,6 +85,7 @@ export function ChatList({
           label="Menu"
           items={[
             { label: "New chat", onSelect: onNewChat },
+            { label: "New group", onSelect: onNewGroup },
             { label: "Add a device", onSelect: onInvite },
             { label: "Settings", onSelect: onSettings },
           ]}
@@ -104,13 +114,18 @@ export function ChatList({
           className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted select-text [-webkit-user-select:text]"
         />
       </label>
-      <div className="flex shrink-0 gap-2 px-3 pb-1.5 pt-2.5" role="group" aria-label="Filter chats">
+      {/* Scrolls sideways when the column is too narrow for every chip, like WhatsApp. */}
+      <div
+        className="flex shrink-0 gap-2 overflow-x-auto px-3 pb-1.5 pt-2.5 [scrollbar-width:none]"
+        role="group"
+        aria-label="Filter chats"
+      >
         {FILTERS.map((f) => (
           <button
             key={f.id}
             onClick={() => setFilter(f.id)}
             aria-pressed={filter === f.id}
-            className={`rounded-full px-3.5 py-1 text-[14px] ${
+            className={`shrink-0 rounded-full px-3.5 py-1 text-[14px] ${
               filter === f.id ? "bg-chip-on text-chip-on-ink" : "bg-field text-muted hover:brightness-95"
             }`}
           >
@@ -151,7 +166,13 @@ export function ChatList({
         ))}
         {shown.length === 0 && (q || filter !== "all") && (
           <li className="px-8 py-10 text-center text-[14px] text-muted">
-            {q ? `No chats match “${query.trim()}”.` : filter === "unread" ? "No unread chats." : "No private chats yet."}
+            {q
+              ? `No chats match “${query.trim()}”.`
+              : filter === "unread"
+                ? "No unread chats."
+                : filter === "groups"
+                  ? "No groups yet. Start one from the menu."
+                  : "No private chats yet."}
           </li>
         )}
       </ul>
@@ -197,20 +218,25 @@ export function ChatAvatar({
   chat,
   size = "list",
 }: {
-  chat: Pick<ChatSummary, "id" | "title" | "isGroup" | "online">;
+  chat: Pick<ChatSummary, "id" | "title" | "kind" | "online">;
   size?: "list" | "header";
 }) {
   const box = size === "list" ? "size-[49px]" : "size-10";
+  const icon = size === "list" ? 26 : 22;
   return (
     <span className="relative shrink-0">
-      {chat.isGroup ? (
+      {chat.kind === "everyone" ? (
         <span aria-hidden className={`flex items-center justify-center rounded-full bg-accent text-white ${box}`}>
-          <WifiIcon size={size === "list" ? 26 : 22} />
+          <WifiIcon size={icon} />
+        </span>
+      ) : chat.kind === "group" ? (
+        <span aria-hidden className={`flex items-center justify-center rounded-full text-white ${box}`} style={{ background: colourFor(chat.id) }}>
+          <PeopleIcon size={icon} />
         </span>
       ) : (
         <Avatar name={chat.title} seed={chat.id} size={size} />
       )}
-      {chat.online && !chat.isGroup && (
+      {chat.online && chat.kind === "private" && (
         <span
           aria-label="online"
           className="absolute bottom-0 right-0 size-3.5 rounded-full border-2 border-panel bg-accent"

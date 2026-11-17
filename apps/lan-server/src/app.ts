@@ -11,12 +11,13 @@ import type { z } from "zod";
 import {
   ClientMessageSchema,
   GROUP_CHAT_ID,
-  chatMembers,
+  CreateGroupRequestSchema,
   CreateMessageRequestSchema,
   HISTORY_LIMIT,
   MAX_TEXT_LENGTH,
   PROTOCOL_VERSION,
   SubmitChecksumRequestSchema,
+  UpdateGroupRequestSchema,
   previewKind,
   routes,
   type Attachment,
@@ -95,13 +96,12 @@ export async function buildApp({
   const sessionByToken = new Map<string, Session>();
 
   const online = (): Device[] => [...new Map([...sessions.values()].map((s) => [s.device.id, s.device])).values()];
-  /** Sends to every connected device, or only to the two members of a private chat. */
-  const broadcast = (event: ServerEvent, chatId: string = GROUP_CHAT_ID) => {
-    const members = chatMembers(chatId);
-    if (!members) return;
+  /** Sends to every connected device, or only to the members of a private chat or group (plus any devices in `alsoTo`). */
+  const broadcast = (event: ServerEvent, chatId: string = GROUP_CHAT_ID, alsoTo: string[] = []) => {
+    const members = store.members(chatId) ?? [];
     const data = JSON.stringify(event);
     for (const [socket, session] of sessions) {
-      if (members !== "everyone" && !members.includes(session.device.id)) continue;
+      if (members !== "everyone" && !members.includes(session.device.id) && !alsoTo.includes(session.device.id)) continue;
       if (socket.readyState === socket.OPEN) socket.send(data);
     }
   };
@@ -158,7 +158,7 @@ export async function buildApp({
 
   await app.register(cors, {
     origin: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["authorization", "content-type"],
   });
   await app.register(websocket, { options: { maxPayload: MAX_TEXT_LENGTH * 2 } });
@@ -269,6 +269,7 @@ export async function buildApp({
           online: online(),
           directory: store.directory(),
           messages: store.history(session.device.id, HISTORY_LIMIT),
+          groups: store.groupsOf(session.device.id),
           isHost: isHost(request.socket.remoteAddress),
         });
         return broadcast({ type: "presence:update", online: online() });
@@ -322,6 +323,23 @@ export async function buildApp({
     for (const [socket, s] of sessions) {
       if (s.device.id === device.id) socket.send(JSON.stringify({ type: "chat:cleared", chatId: request.params.id, before } satisfies ServerEvent));
     }
+    return reply.code(204).send();
+  });
+
+  app.post(routes.groups, async (request, reply) => {
+    const { device } = authenticate(request);
+    const { name, members } = parse(CreateGroupRequestSchema, request.body);
+    return reply.code(201).send(store.createGroup(device.id, name, members));
+  });
+
+  app.patch<{ Params: MessageParams }>(routes.group(":id"), async (request) => {
+    const { device } = authenticate(request);
+    return store.updateGroup(request.params.id, device.id, parse(UpdateGroupRequestSchema, request.body));
+  });
+
+  app.post<{ Params: MessageParams }>(routes.leaveGroup(":id"), async (request, reply) => {
+    const { device } = authenticate(request);
+    await store.leaveGroup(request.params.id, device.id);
     return reply.code(204).send();
   });
 

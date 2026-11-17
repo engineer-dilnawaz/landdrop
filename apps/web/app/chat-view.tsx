@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MAX_ATTACHMENT_BYTES, type Message } from "@landrop/protocol";
 import { Bubble, TIME_GAP_MS } from "./bubble";
-import { ChatAvatar } from "./chat-list";
+import { ChatAvatar, type ChatKind } from "./chat-list";
 import type { Progress } from "./landrop";
 import {
   BackIcon,
@@ -38,9 +38,9 @@ function namePasted(file: File): File {
 export interface OpenChat {
   id: string;
   title: string;
-  isGroup: boolean;
+  kind: ChatKind;
   online: boolean;
-  /** Members online (group) or "online" / "last seen …" (private chat). */
+  /** Who is in it or online, or "online" / "last seen …" for a private chat. */
   subtitle: string;
 }
 
@@ -54,6 +54,8 @@ export function ChatView({
   composer,
   onBack,
   onInvite,
+  onGroupInfo,
+  onLeaveGroup,
   onClearChat,
   onOpenImage,
   onReply,
@@ -79,6 +81,10 @@ export function ChatView({
   onBack: () => void;
   /** Shows the join QR code, with Save and Share, so more devices can join. */
   onInvite: () => void;
+  /** A group's members, name and settings. */
+  onGroupInfo: () => void;
+  /** Asks first. */
+  onLeaveGroup: () => void;
   /** Clear the group or delete a private chat (asks first). */
   onClearChat: () => void;
   onOpenImage: (message: Message) => void;
@@ -139,12 +145,20 @@ export function ChatView({
         <button onClick={onBack} className={`${ICON_BUTTON} text-foreground md:hidden`} aria-label="Back to chats">
           <BackIcon />
         </button>
-        <ChatAvatar chat={chat} size="header" />
-        <div className="min-w-0 flex-1 pl-2 md:pl-0">
-          <h2 className="truncate text-[16px] font-medium leading-tight">{chat.title}</h2>
-          <p className="truncate text-[13px] text-muted">{chat.subtitle}</p>
-        </div>
-        {chat.isGroup && (
+        {/* Like WhatsApp, a group's name opens its info. */}
+        <button
+          onClick={chat.kind === "group" ? onGroupInfo : undefined}
+          disabled={chat.kind !== "group"}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
+          aria-label={chat.kind === "group" ? `${chat.title}: group info` : undefined}
+        >
+          <ChatAvatar chat={chat} size="header" />
+          <span className="min-w-0 flex-1 pl-2 md:pl-0">
+            <span className="block truncate text-[16px] font-medium leading-tight">{chat.title}</span>
+            <span className="block truncate text-[13px] text-muted">{chat.subtitle}</span>
+          </span>
+        </button>
+        {chat.kind === "everyone" && (
           <button onClick={onInvite} className={ICON_BUTTON} aria-label="Invite devices: show QR code" title="Invite devices">
             <QrIcon />
           </button>
@@ -152,9 +166,11 @@ export function ChatView({
         <DropdownMenu
           label="Chat menu"
           items={[
-            ...(chat.isGroup ? [{ label: "Invite devices", onSelect: onInvite }] : []),
+            ...(chat.kind === "everyone" ? [{ label: "Invite devices", onSelect: onInvite }] : []),
+            ...(chat.kind === "group" ? [{ label: "Group info", onSelect: onGroupInfo }] : []),
             { label: "Close chat", onSelect: onBack },
-            { label: chat.isGroup ? "Clear chat" : "Delete chat", onSelect: onClearChat, danger: true },
+            { label: chat.kind === "private" ? "Delete chat" : "Clear chat", onSelect: onClearChat, danger: true },
+            ...(chat.kind === "group" ? [{ label: "Leave group", onSelect: onLeaveGroup, danger: true }] : []),
           ]}
         />
       </header>
@@ -164,9 +180,11 @@ export function ChatView({
           <div ref={contentRef} className="mx-auto flex max-w-4xl flex-col">
             <p className="mx-auto mb-2 mt-2 flex max-w-md items-center gap-1.5 rounded-lg bg-[#ffeecd] px-3 py-1.5 text-center text-[12.5px] text-[#54656f] shadow-[0_1px_.5px_rgba(11,20,26,.13)] dark:bg-[#182229] dark:text-[#ffd279]">
               <LockIcon />
-              {chat.isGroup
+              {chat.kind === "everyone"
                 ? "Messages here go to everyone on this Wi-Fi who opens LANDrop. Nothing goes to the internet."
-                : `Messages here are only between you and ${chat.title}, and stay on this Wi-Fi.`}
+                : chat.kind === "group"
+                  ? "Only the devices in this group see its messages and files. They stay on this Wi-Fi."
+                  : `Messages here are only between you and ${chat.title}, and stay on this Wi-Fi.`}
             </p>
             {messages.map((m, i) => {
               const prev = messages[i - 1];
@@ -185,7 +203,7 @@ export function ChatView({
                     message={m}
                     nameOf={nameOf}
                     own={own}
-                    showSender={chat.isGroup && !own && startsRun}
+                    showSender={chat.kind !== "private" && !own && startsRun}
                     first={startsRun}
                     progress={progress[m.id]}
                     downloadUrl={download}

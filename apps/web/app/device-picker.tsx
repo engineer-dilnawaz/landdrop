@@ -91,7 +91,7 @@ function DeviceSection({
               onClick={() => onPick(d.chatId)}
               className="flex h-[72px] w-full items-center gap-[15px] pl-[13px] text-left hover:bg-hover active:bg-hover"
             >
-              <ChatAvatar chat={{ id: d.chatId, title: d.name, isGroup: false, online: d.online }} />
+              <ChatAvatar chat={{ id: d.chatId, title: d.name, kind: "private", online: d.online }} />
               <div className="flex h-full min-w-0 flex-1 flex-col justify-center border-b border-divider pr-4">
                 <p className="truncate text-[17px]">{d.name}</p>
                 <p className="truncate text-[14px] text-muted">{d.status}</p>

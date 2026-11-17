@@ -569,10 +569,17 @@ export const AlertIcon = () => (
 );
 
 /** The LANDrop drop-and-signal mark, drawn in the accent colour. */
-export const Logo = ({ size = 72 }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
-    <path fill="currentColor" d="M12 6s-4.5 6-4.5 9a4.5 4.5 0 0 0 9 0c0-3-4.5-9-4.5-9z" />
-    <path d="M4.5 8.5a11 11 0 0 1 15 0" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" opacity={0.55} />
+/**
+ * The app icon's mark: a drop under two signal arcs. `animated` sends the arcs out in turn, inner
+ * then outer, like the drop is being broadcast (still for people who ask for less motion).
+ */
+export const Logo = ({ size = 72, animated = false }: IconProps & { animated?: boolean }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className={animated ? "logo-animated" : undefined}>
+    <g fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round">
+      <path className="logo-arc logo-arc-outer" d="M3.3 6.7a10.6 10.6 0 0 1 17.4 0" opacity={0.35} />
+      <path className="logo-arc logo-arc-inner" d="M5.5 9.3a7.6 7.6 0 0 1 13 0" opacity={0.55} />
+    </g>
+    <path fill="currentColor" d="M12 6.6S8.3 11.8 8.3 14.1a3.7 3.7 0 0 0 7.4 0C15.7 11.8 12 6.6 12 6.6Z" />
   </svg>
 );
 

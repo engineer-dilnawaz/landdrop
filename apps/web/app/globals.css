@@ -20,7 +20,7 @@
   --danger: #ea0038;
   --banner: #fff4c2;
   --banner-ink: #54460a;
-  /* Accent: WhatsApp green unless the user picked blue in Settings. */
+  /* Accent: WhatsApp green unless another chat colour is picked in Settings. */
   --accent: #00a884;
   --bubble-out: #d9fdd3;
   --bubble-out-ink: #111b21;
@@ -29,12 +29,6 @@
   color-scheme: light;
 }
 
-:root.accent-blue {
-  --accent: #1f6bff;
-  --bubble-out: #d6e6ff;
-  --chip-on: #e3edff;
-  --chip-on-ink: #1747b8;
-}
 
 :root.dark {
   color-scheme: dark;
@@ -57,11 +51,113 @@
   --chip-on: #103529;
   --chip-on-ink: #00a884;
 }
-:root.dark.accent-blue {
+/* Chat colours chosen in Settings (green is the default above). */
+:root[data-accent="blue"] {
+  --accent: #1f6bff;
+  --bubble-out: #d6e6ff;
+  --chip-on: #e3edff;
+  --chip-on-ink: #1747b8;
+}
+:root[data-accent="purple"] {
+  --accent: #7c4dff;
+  --bubble-out: #e9e0ff;
+  --chip-on: #efe8ff;
+  --chip-on-ink: #5b34c7;
+}
+:root[data-accent="pink"] {
+  --accent: #e5397a;
+  --bubble-out: #ffdcea;
+  --chip-on: #ffe6f0;
+  --chip-on-ink: #b0245c;
+}
+:root[data-accent="orange"] {
+  --accent: #e8710a;
+  --bubble-out: #ffe6cc;
+  --chip-on: #fff0e0;
+  --chip-on-ink: #a8520c;
+}
+:root[data-accent="teal"] {
+  --accent: #0a9396;
+  --bubble-out: #d2f3f2;
+  --chip-on: #e0f7f6;
+  --chip-on-ink: #08686a;
+}
+:root[data-accent="red"] {
+  --accent: #e5484d;
+  --bubble-out: #ffe0e0;
+  --chip-on: #ffe9e9;
+  --chip-on-ink: #b42328;
+}
+:root[data-accent="graphite"] {
+  --accent: #54656f;
+  --bubble-out: #e3e8eb;
+  --chip-on: #eceff1;
+  --chip-on-ink: #3b4a54;
+}
+:root.dark[data-accent="blue"] {
   --accent: #3b82f6;
   --bubble-out: #144d9e;
   --chip-on: #13294d;
   --chip-on-ink: #7fb0ff;
+}
+:root.dark[data-accent="purple"] {
+  --accent: #9f7aea;
+  --bubble-out: #4a2f86;
+  --chip-on: #2a1f4a;
+  --chip-on-ink: #c4b0ff;
+}
+:root.dark[data-accent="pink"] {
+  --accent: #f0609b;
+  --bubble-out: #8a2150;
+  --chip-on: #45172b;
+  --chip-on-ink: #ff9cc4;
+}
+:root.dark[data-accent="orange"] {
+  --accent: #f59a3c;
+  --bubble-out: #8a4510;
+  --chip-on: #45280f;
+  --chip-on-ink: #ffbe7a;
+}
+:root.dark[data-accent="teal"] {
+  --accent: #22b8bb;
+  --bubble-out: #0f5a5c;
+  --chip-on: #0f3333;
+  --chip-on-ink: #6fe0e2;
+}
+:root.dark[data-accent="red"] {
+  --accent: #f2555a;
+  --bubble-out: #7d1f22;
+  --chip-on: #401617;
+  --chip-on-ink: #ff9a9d;
+}
+:root.dark[data-accent="graphite"] {
+  --accent: #8696a0;
+  --bubble-out: #3b4a54;
+  --chip-on: #26333b;
+  --chip-on-ink: #c2cdd3;
+}
+
+/* Message text size and bubble shape, from Settings. */
+:root {
+  --chat-text: 14.5px;
+  --chat-leading: 19px;
+  --bubble-radius: 7.5px;
+  /* Photos inside a bubble sit 3px in, so their corners follow the bubble's. */
+  --media-radius: max(0px, calc(var(--bubble-radius) - 2.5px));
+}
+:root[data-text="small"] {
+  --chat-text: 13px;
+  --chat-leading: 17px;
+}
+:root[data-text="large"] {
+  --chat-text: 17px;
+  --chat-leading: 22px;
+}
+:root[data-shape="round"] {
+  --bubble-radius: 18px;
+}
+:root[data-shape="sharp"] {
+  --bubble-radius: 2px;
 }
 
 @theme inline {
@@ -97,7 +193,7 @@ body {
 .wallpaper {
   position: relative;
   isolation: isolate;
-  background-color: var(--wall);
+  background: var(--wall-wash, none) var(--wall);
 }
 .wallpaper::before {
   content: "";
@@ -110,6 +206,7 @@ body {
   -webkit-mask-size: 432px;
   mask-size: 432px;
   pointer-events: none;
+  opacity: var(--wall-doodles, 1);
 }
 
 /* A bubble's tail: the small corner WhatsApp puts on the first message of a run. */
@@ -130,6 +227,92 @@ body {
   right: -8px;
   background: var(--bubble-out);
   clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+/* Tails turned off in Settings: every bubble keeps all four corners. */
+:root[data-tail="off"] .tail-in::before,
+:root[data-tail="off"] .tail-out::before {
+  display: none;
+}
+:root[data-tail="off"] .tail-in {
+  border-top-left-radius: var(--bubble-radius);
+}
+:root[data-tail="off"] .tail-out {
+  border-top-right-radius: var(--bubble-radius);
+}
+
+/* Wallpapers: the doodles, plain, or a soft wash with a dark version. Chosen in Settings as
+   data-wall on <html>; the same classes set them on just one element, for the tiles in Settings. */
+:root[data-wall]:not([data-wall="doodles"]),
+.wall-plain {
+  --wall-doodles: 0;
+}
+.wall-doodles {
+  --wall-doodles: 1;
+  --wall-wash: none;
+}
+.wall-plain {
+  --wall-wash: none;
+}
+:root[data-wall="sky"],
+.wall-sky {
+  --wall-doodles: 0;
+  --wall-wash: linear-gradient(160deg, #dff1ff, #f3e9ff);
+}
+:root.dark[data-wall="sky"],
+.dark .wall-sky {
+  --wall-wash: linear-gradient(160deg, #0d2233, #1d1733);
+}
+:root[data-wall="mint"],
+.wall-mint {
+  --wall-doodles: 0;
+  --wall-wash: linear-gradient(160deg, #dcf8ec, #fdf6dc);
+}
+:root.dark[data-wall="mint"],
+.dark .wall-mint {
+  --wall-wash: linear-gradient(160deg, #0c2a22, #262410);
+}
+:root[data-wall="blush"],
+.wall-blush {
+  --wall-doodles: 0;
+  --wall-wash: linear-gradient(160deg, #ffe4ec, #ffeedd);
+}
+:root.dark[data-wall="blush"],
+.dark .wall-blush {
+  --wall-wash: linear-gradient(160deg, #2e1520, #2b1d12);
+}
+:root[data-wall="dusk"],
+.wall-dusk {
+  --wall-doodles: 0;
+  --wall-wash: linear-gradient(160deg, #d9dcff, #ffd9e8);
+}
+:root.dark[data-wall="dusk"],
+.dark .wall-dusk {
+  --wall-wash: linear-gradient(160deg, #191b3d, #351a2b);
+}
+
+/* The welcome screen's logo: its two arcs light up in turn, inner then outer, then rest. */
+@keyframes logo-signal {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  20% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 0.2;
+  }
+}
+.logo-animated .logo-arc {
+  animation: logo-signal 2.4s ease-in-out infinite;
+}
+.logo-animated .logo-arc-outer {
+  animation-delay: 0.3s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .logo-animated .logo-arc {
+    animation: none;
+  }
 }
 
 /* Bottom sheets slide up over a fading backdrop. */

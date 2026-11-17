@@ -32,13 +32,11 @@ export function Rail({ panel, unread, selfName, selfId, onPanel, onInvite }: Nav
         <QrIcon />
       </RailButton>
       <span className="flex-1" />
-      <span aria-hidden className="my-1 h-px w-7 bg-divider" />
-      <RailButton label="Settings" active={panel === "settings"} onClick={() => onPanel("settings")}>
-        <SettingsIcon />
-      </RailButton>
+      {/* Your avatar opens Settings, like WhatsApp Web's profile picture. */}
       <button
         onClick={() => onPanel("settings")}
-        className="mt-2 rounded-full"
+        aria-current={panel === "settings" ? "page" : undefined}
+        className={`rounded-full ring-offset-2 ring-offset-bar ${panel === "settings" ? "ring-2 ring-accent" : ""}`}
         aria-label={`You are ${selfName ?? "joining"}. Open settings`}
         title={selfName}
       >

@@ -173,7 +173,7 @@ export function Bubble({
         aria-label={own ? undefined : `${senderName}:`}
         style={{ transform: dx ? `translateX(${dx}px)` : undefined }}
         // "isolate" lets a live file's sparkles sit between the bubble colour and its content.
-        className={`group relative isolate max-w-[85%] touch-pan-y rounded-[7.5px] text-[14.5px] leading-[19px] shadow-[0_1px_.5px_rgba(11,20,26,.13)] select-none [-webkit-touch-callout:none] [-webkit-user-select:none] md:max-w-[65%] ${
+        className={`group relative isolate max-w-[85%] touch-pan-y rounded-(--bubble-radius) text-(length:--chat-text) leading-(--chat-leading) shadow-[0_1px_.5px_rgba(11,20,26,.13)] select-none [-webkit-touch-callout:none] [-webkit-user-select:none] md:max-w-[65%] ${
           dx ? "" : "transition-transform"
         } ${own ? "bg-bubble-out text-bubble-out-ink" : "bg-bubble-in text-foreground"} ${
           first ? (own ? "tail-out rounded-tr-none" : "tail-in rounded-tl-none") : ""
@@ -233,12 +233,12 @@ export function Bubble({
               draggable={false}
               onError={() => setPreviewFailed(true)}
               onClick={() => !gestureConsumedClick.current && onOpenMedia()}
-              className="block max-h-80 min-h-24 min-w-40 max-w-full cursor-zoom-in rounded-[5px] bg-black/10 object-cover md:max-w-[330px]"
+              className="block max-h-80 min-h-24 min-w-40 max-w-full cursor-zoom-in rounded-(--media-radius) bg-black/10 object-cover md:max-w-[330px]"
             />
             {/* GIFs already loop in the bubble; the badge says why it's moving. */}
             {a.mimeType === "image/gif" && <span className={`${BADGE} left-2 top-2`}>GIF</span>}
             {!message.text && (
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 flex h-9 items-end justify-end rounded-b-[5px] bg-linear-to-b from-transparent to-black/45 px-2 pb-1 text-white">
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 flex h-9 items-end justify-end rounded-b-(--media-radius) bg-linear-to-b from-transparent to-black/45 px-2 pb-1 text-white">
                 <Meta at={message.createdAt} own={own} status={a.status} receipt={receipt} onMedia />
               </span>
             )}
@@ -249,7 +249,7 @@ export function Bubble({
             <button
               onClick={() => !gestureConsumedClick.current && onOpenMedia()}
               aria-label={`Play ${a.name}`}
-              className="relative block min-h-24 min-w-40 max-w-full overflow-hidden rounded-[5px] bg-black md:max-w-[330px]"
+              className="relative block min-h-24 min-w-40 max-w-full overflow-hidden rounded-(--media-radius) bg-black md:max-w-[330px]"
             >
               {/* A still frame; it plays full screen. "#t=0.1" makes iOS Safari show that frame instead of a blank box. */}
               <video

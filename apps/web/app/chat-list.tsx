@@ -78,9 +78,6 @@ export function ChatList({
         <button onClick={onInvite} className={`${ICON_BUTTON} md:hidden`} aria-label="Add a device: show QR code" title="Add a device">
           <QrIcon />
         </button>
-        <button onClick={onNewChat} className={`${ICON_BUTTON} hidden md:flex`} aria-label="New chat" title="New chat">
-          <NewChatIcon />
-        </button>
         <DropdownMenu
           label="Menu"
           items={[

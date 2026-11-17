@@ -855,7 +855,7 @@ export default function LanDrop() {
           // WhatsApp Web's welcome pane while no chat is open.
           <div className="relative flex flex-1 flex-col items-center justify-center gap-4 border-b-[6px] border-accent bg-bar px-10 text-center">
             <span className="text-accent">
-              <Logo size={96} />
+              <Logo size={96} animated />
             </span>
             <p className="text-[30px] font-light">LANDrop</p>
             <p className="max-w-md text-[14px] leading-6 text-muted">

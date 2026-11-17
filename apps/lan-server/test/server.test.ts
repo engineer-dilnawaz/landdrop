@@ -653,6 +653,20 @@ describe("previews", () => {
     expect(beyond.status).toBe(416);
   });
 
+  it("plays voice messages in the chat, as browsers record them, with seeking", async () => {
+    const mac = await join_("Mac");
+    const data = randomBytes(4000);
+    // Chrome records WebM; Safari records MP4. Both must play inline, not download.
+    for (const [name, type] of [["Voice message 10.42.webm", "audio/webm"], ["Voice message 10.43.m4a", "audio/mp4"]]) {
+      const voice = await sendReady(mac, data, name, type);
+      const res = await preview(mac, voice.id, { range: "bytes=0-99" });
+      expect(res.status).toBe(206);
+      expect(res.headers.get("content-type")).toBe(type);
+      expect(res.headers.get("content-disposition")).toMatch(/^inline;/);
+      await res.arrayBuffer();
+    }
+  });
+
   it("keeps very large photos as downloads instead of decoding them inline on a phone", () => {
     expect(previewKind({ mimeType: "image/png", size: MAX_IMAGE_PREVIEW_BYTES })).toBe("image");
     expect(previewKind({ mimeType: "image/png", size: MAX_IMAGE_PREVIEW_BYTES + 1 })).toBeUndefined();

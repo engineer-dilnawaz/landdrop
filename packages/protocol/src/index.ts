@@ -168,18 +168,21 @@ export const SubmitChecksumRequestSchema = z.object({
 // ---------- Previews ----------
 
 /**
- * Only formats a browser displays without running code are previewed. SVG is
+ * Only formats a browser displays or plays without running code are previewed. SVG is
  * excluded because it can carry scripts; everything else stays a download.
  */
 const PREVIEWABLE_IMAGES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/heic"]);
 const PREVIEWABLE_VIDEOS = new Set(["video/mp4", "video/quicktime", "video/webm"]);
+/** Voice messages and audio files play in the chat. Browsers record voice as WebM (Chrome, Firefox) or MP4 (Safari). */
+const PLAYABLE_AUDIO = new Set(["audio/webm", "audio/mp4", "audio/x-m4a", "audio/mpeg", "audio/ogg", "audio/wav", "audio/aac"]);
 /** Larger photos stay downloads so a phone isn't asked to decode a huge image inline. */
 export const MAX_IMAGE_PREVIEW_BYTES = 30 * 1024 * 1024;
 
-export function previewKind(attachment: Pick<Attachment, "mimeType" | "size">): "image" | "video" | undefined {
+export function previewKind(attachment: Pick<Attachment, "mimeType" | "size">): "image" | "video" | "audio" | undefined {
   const type = attachment.mimeType.toLowerCase();
   if (PREVIEWABLE_IMAGES.has(type)) return attachment.size <= MAX_IMAGE_PREVIEW_BYTES ? "image" : undefined;
   if (PREVIEWABLE_VIDEOS.has(type)) return "video";
+  if (PLAYABLE_AUDIO.has(type)) return "audio";
   return undefined;
 }
 

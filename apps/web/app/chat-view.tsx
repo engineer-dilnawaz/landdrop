@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { MAX_ATTACHMENT_BYTES, type Message } from "@landrop/protocol";
 import { Bubble, TIME_GAP_MS } from "./bubble";
 import { ChatAvatar, type ChatKind } from "./chat-list";
+import { RecorderFallback, RecordingBar, canRecordHere, useVoiceRecorder } from "./voice";
 import type { Progress } from "./landrop";
 import {
   BackIcon,
@@ -15,6 +16,7 @@ import {
   ICON_BUTTON,
   ImageIcon,
   LockIcon,
+  MicIcon,
   PlusIcon,
   QrIcon,
   SHEET_ITEM,
@@ -75,7 +77,9 @@ export function ChatView({
     removeFile: (index: number) => void;
     chooseFiles: (files: File[]) => void;
     cancelReply: () => void;
-    send: () => void;
+    /** Sends what's typed and picked, plus `extra` files (a voice message). */
+    send: (extra?: File[]) => void;
+    notice: (text: string) => void;
   };
   /** Leaves the chat: back to the list on phones, the welcome screen on computers. */
   onBack: () => void;
@@ -92,6 +96,9 @@ export function ChatView({
   onLongPress: (message: Message) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const recorder = useVoiceRecorder(composer.notice);
+  // Only rendered once connected, never on the server, so reading the browser here is safe.
+  const canRecord = canRecordHere();
   const scrollerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   /** Whether the view stays at the newest message as the chat grows: until the user scrolls up. */
@@ -262,33 +269,58 @@ export function ChatView({
             </ul>
           )}
           <div className="flex items-end gap-1.5">
-            <AttachMenu onFiles={composer.chooseFiles} />
-            <div className="flex min-h-[42px] flex-1 items-end rounded-lg bg-panel px-3 md:bg-field dark:bg-field">
-              <textarea
-                value={text}
-                onChange={(e) => composer.setText(e.target.value)}
-                onKeyDown={(e) => {
-                  // On phones Return adds a line, like WhatsApp; on computers Enter sends.
-                  if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) {
-                    e.preventDefault();
-                    composer.send();
-                  }
+            {recorder.active ? (
+              <RecordingBar
+                seconds={recorder.seconds}
+                onCancel={recorder.cancel}
+                onSend={async () => {
+                  const voice = await recorder.stop();
+                  if (voice) composer.send([voice]);
                 }}
-                rows={1}
-                placeholder="Type a message"
-                aria-label="Message"
-                className="max-h-36 min-h-[42px] flex-1 resize-none bg-transparent py-[11px] text-[15px] leading-5 outline-none placeholder:text-muted select-text [-webkit-user-select:text] [field-sizing:content]"
               />
-            </div>
-            {/* The slot WhatsApp swaps between send and the voice-note mic; send only, until voice notes exist. */}
-            <button
-              onClick={composer.send}
-              disabled={!text.trim() && files.length === 0}
-              aria-label="Send"
-              className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-accent text-white transition-opacity disabled:opacity-50"
-            >
-              <SendIcon />
-            </button>
+            ) : (
+              <>
+                <AttachMenu onFiles={composer.chooseFiles} />
+                <div className="flex min-h-[42px] flex-1 items-end rounded-lg bg-panel px-3 md:bg-field dark:bg-field">
+                  <textarea
+                    value={text}
+                    onChange={(e) => composer.setText(e.target.value)}
+                    onKeyDown={(e) => {
+                      // On phones Return adds a line, like WhatsApp; on computers Enter sends.
+                      if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) {
+                        e.preventDefault();
+                        composer.send();
+                      }
+                    }}
+                    rows={1}
+                    placeholder="Type a message"
+                    aria-label="Message"
+                    className="max-h-36 min-h-[42px] flex-1 resize-none bg-transparent py-[11px] text-[15px] leading-5 outline-none placeholder:text-muted select-text [-webkit-user-select:text] [field-sizing:content]"
+                  />
+                </div>
+                {/* Like WhatsApp: send once there's something to send, otherwise the voice message mic. */}
+                {text.trim() || files.length ? (
+                  <button
+                    onClick={() => composer.send()}
+                    aria-label="Send"
+                    className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-accent text-white"
+                  >
+                    <SendIcon />
+                  </button>
+                ) : canRecord ? (
+                  <button
+                    onClick={() => void recorder.start()}
+                    aria-label="Record a voice message"
+                    title="Record a voice message"
+                    className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-accent text-white"
+                  >
+                    <MicIcon />
+                  </button>
+                ) : (
+                  <RecorderFallback onFile={(file) => composer.send([file])} />
+                )}
+              </>
+            )}
           </div>
         </div>
       </footer>

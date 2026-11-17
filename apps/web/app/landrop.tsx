@@ -451,7 +451,8 @@ export default function LanDrop() {
     dispatch({ type: "notice", notice: undefined });
   }
 
-  async function send() {
+  /** Sends the typed text and picked files, plus `extra` files such as a voice message just recorded. */
+  async function send(extra: File[] = []) {
     // The contact's browser that's open now, which may not be the one the chat was opened with.
     const chatId = activeChat?.id;
     if (!chatId) return;
@@ -459,7 +460,7 @@ export default function LanDrop() {
       return dispatch({ type: "notice", notice: "Not connected to the LANDrop host yet. Reconnecting…" });
     }
     const body = (drafts[chatId] ?? "").trim();
-    const toUpload = files;
+    const toUpload = [...files, ...extra];
     if (!body && toUpload.length === 0) return;
     // The reply quote goes on the first message sent: the text, or else the first attachment.
     let replyToId = replyTo?.id;
@@ -791,7 +792,8 @@ export default function LanDrop() {
               removeFile: (index) => setFiles((current) => current.filter((_, i) => i !== index)),
               chooseFiles,
               cancelReply: () => setReplyTo(undefined),
-              send: () => void send(),
+              send: (extra) => void send(extra),
+              notice: (notice) => dispatch({ type: "notice", notice }),
             }}
             onBack={() => openChat(undefined)}
             onInvite={() => setInviting(true)}
@@ -937,6 +939,7 @@ function messagePreview(m: Message): string {
   if (m.text) return m.text.replace(/\s+/g, " ");
   const a = m.attachment!;
   const kind = previewKind(a);
+  if (kind === "audio") return a.name.startsWith("Voice message") ? "🎤 Voice message" : `🎵 ${a.name}`;
   return kind === "image" ? "📷 Photo" : kind === "video" ? "🎥 Video" : `📄 ${a.name}`;
 }
 

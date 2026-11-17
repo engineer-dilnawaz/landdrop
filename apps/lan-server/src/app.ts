@@ -377,7 +377,7 @@ export async function buildApp({
     const { device } = authenticate(request, true);
     const attachment = store.availableAttachment(request.params.id, device.id);
     if (!previewKind(attachment)) throw new HttpError(415, "This attachment has no preview");
-    // Only allow-listed image/video types reach here. The sandboxing CSP means that even a
+    // Only allow-listed image, video and audio types reach here. The sandboxing CSP means that even a
     // file mislabelled by its sender can't run script if someone opens this URL directly.
     reply
       .header("content-type", attachment.mimeType.toLowerCase())

@@ -402,6 +402,26 @@ export const ShareIcon = ({ size = 24 }: IconProps) => (
   </svg>
 );
 
+export const MicIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" />
+  </svg>
+);
+
+export const PlayIcon = ({ size = 22 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="shrink-0">
+    <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" fill="currentColor" />
+  </svg>
+);
+
+export const PauseIcon = ({ size = 22 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="shrink-0">
+    <rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
+    <rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
+  </svg>
+);
+
 export const PeopleIcon = ({ size = 24 }: IconProps) => (
   <svg {...sized(size)}>
     <circle cx="9" cy="8" r="3.5" />

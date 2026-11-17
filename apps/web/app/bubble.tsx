@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { isAvailable, previewKind, type Attachment, type Message } from "@landrop/protocol";
 import type { Progress } from "./landrop";
 import { SparkleField } from "./sparkle-field";
+import { VoicePlayer } from "./voice";
 import {
   AlertIcon,
   ChevronIcon,
@@ -77,6 +78,8 @@ export function Bubble({
   const shortText = message.text && !expanded ? truncateLongText(message.text) : undefined;
   // Previews only once the host has verified the bytes (or live from the sender); formats this browser can't show fall back to the file card.
   const preview = a && isAvailable(a) && !previewFailed ? previewKind(a) : undefined;
+  /** Photos and videos fill the bubble; voice messages sit inside it like text. */
+  const media = preview === "image" || preview === "video";
   const meta = <Meta at={message.createdAt} own={own} status={a?.status} />;
 
   // Swipe right to reply; press and hold for the actions. Vertical drags stay with the page scroll.
@@ -153,7 +156,7 @@ export function Bubble({
           first ? (own ? "tail-out rounded-tr-none" : "tail-in rounded-tl-none") : ""
         } ${
           // Media fills the bubble with a thin frame, like WhatsApp; live media gets a wider one so its sparkles show.
-          preview ? (a?.status === "live" ? "p-2" : "p-[3px]") : "px-[9px] pb-2 pt-1.5"
+          media ? (a?.status === "live" ? "p-2" : "p-[3px]") : "px-[9px] pb-2 pt-1.5"
         }`}
       >
         {/* WhatsApp's ⌄ on hover: the same actions as press and hold. */}
@@ -166,7 +169,7 @@ export function Bubble({
           <ChevronIcon />
         </button>
         {showSender && (
-          <p className={`text-[13px] font-medium ${preview ? "px-1.5 pb-1 pt-0.5" : "pb-0.5"}`} style={{ color: colourFor(message.senderId ?? senderName) }}>
+          <p className={`text-[13px] font-medium ${media ? "px-1.5 pb-1 pt-0.5" : "pb-0.5"}`} style={{ color: colourFor(message.senderId ?? senderName) }}>
             {senderName}
           </p>
         )}
@@ -184,7 +187,7 @@ export function Bubble({
         )}
         {message.text && (
           // WhatsApp-style time: floated into the last line when it fits, otherwise wrapped onto its own line.
-          <p className={`whitespace-pre-wrap wrap-break-word ${preview ? "px-1.5 pt-1" : ""}`}>
+          <p className={`whitespace-pre-wrap wrap-break-word ${media ? "px-1.5 pt-1" : ""}`}>
             {linkify(shortText ?? message.text, own)}
             {shortText !== undefined && (
               <>
@@ -229,6 +232,12 @@ export function Bubble({
             />
             {!message.text && <div className="flex justify-end px-1.5 pt-1">{meta}</div>}
           </>
+        )}
+        {a && preview === "audio" && (
+          <div className={message.text ? "mb-1" : ""}>
+            <VoicePlayer id={message.id} src={previewUrl} size={a.size} own={own} onError={() => setPreviewFailed(true)} />
+            {!message.text && <div className="-mt-4 flex justify-end">{meta}</div>}
+          </div>
         )}
         {a && !preview && (
           <div className={`flex min-w-60 flex-col gap-1 md:min-w-72 ${message.text ? "mb-1" : ""}`}>

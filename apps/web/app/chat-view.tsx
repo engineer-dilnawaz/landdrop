@@ -73,6 +73,7 @@ export function ChatView({
     cancelReply: () => void;
     send: () => void;
   };
+  /** Leaves the chat: back to the list on phones, the welcome screen on computers. */
   onBack: () => void;
   /** Clear the group or delete a private chat (asks first). */
   onClearChat: () => void;
@@ -141,7 +142,10 @@ export function ChatView({
         </div>
         <DropdownMenu
           label="Chat menu"
-          items={[{ label: chat.isGroup ? "Clear chat" : "Delete chat", onSelect: onClearChat, danger: true }]}
+          items={[
+            { label: "Close chat", onSelect: onBack },
+            { label: chat.isGroup ? "Clear chat" : "Delete chat", onSelect: onClearChat, danger: true },
+          ]}
         />
       </header>
 

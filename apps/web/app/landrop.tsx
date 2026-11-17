@@ -404,8 +404,15 @@ export default function LanDrop() {
     // Each chat keeps its own draft; replies and picked files belong to the chat they were made in.
     setReplyTo(undefined);
     setFiles([]);
-    if (id) location.hash = `/chat/${encodeURIComponent(id)}`;
-    else if (chatIdFromHash()) history.back();
+    if (id) {
+      location.hash = `/chat/${encodeURIComponent(id)}`;
+      // Marks the entry as opened from inside LANDrop, so closing can go back to the list.
+      history.replaceState({ openedHere: true }, "");
+    } else if (chatIdFromHash()) {
+      // The phone's back gesture keeps working; a chat opened straight from a link has no list to go back to.
+      if (history.state?.openedHere) history.back();
+      else location.replace("#");
+    }
   }
 
   function rename(name: string) {

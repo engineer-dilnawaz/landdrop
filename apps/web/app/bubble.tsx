@@ -8,11 +8,13 @@ import {
   AlertIcon,
   ChevronIcon,
   ClockIcon,
+  CopyIcon,
   ReplyIcon,
   SaveIcon,
   TickIcon,
   UploadProgress,
   colourFor,
+  copyText,
   formatBytes,
   formatTime,
   linkify,
@@ -129,7 +131,10 @@ export function Bubble({
   };
 
   return (
-    <div id={`message-${message.id}`} className={`relative flex ${own ? "justify-end" : "justify-start"}`}>
+    <div
+      id={`message-${message.id}`}
+      className={`relative flex items-center gap-2 ${own ? "flex-row-reverse justify-start" : "justify-start"}`}
+    >
       <span
         aria-hidden
         className="absolute left-0 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-bar text-muted shadow"
@@ -263,6 +268,48 @@ export function Bubble({
           </span>
         )}
       </div>
+      <QuickActions
+        text={message.text}
+        save={a && isAvailable(a) ? { url: downloadUrl, name: a.name } : undefined}
+      />
+    </div>
+  );
+}
+
+const QUICK_ACTION =
+  "flex size-8 items-center justify-center rounded-full bg-panel/90 text-muted shadow-[0_1px_2px_rgba(11,20,26,.2)] hover:text-foreground";
+
+/** Copy and Save, always beside the bubble; the press-and-hold sheet has every action. */
+function QuickActions({ text, save }: { text?: string; save?: { url: string; name: string } }) {
+  const [copied, setCopied] = useState(false);
+  if (!text && !save) return null;
+  return (
+    <div className="flex shrink-0 gap-1">
+      {text && (
+        <button
+          onClick={() => {
+            if (!copyText(text)) return;
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+          aria-label={copied ? "Copied" : "Copy message"}
+          title={copied ? "Copied" : "Copy"}
+          className={QUICK_ACTION}
+        >
+          {copied ? <TickIcon /> : <CopyIcon />}
+        </button>
+      )}
+      {save && (
+        <a
+          href={save.url}
+          download={save.name}
+          aria-label={`Save ${save.name}`}
+          title="Save"
+          className={QUICK_ACTION}
+        >
+          <SaveIcon />
+        </a>
+      )}
     </div>
   );
 }

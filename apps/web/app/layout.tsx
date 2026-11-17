@@ -12,14 +12,15 @@ export const viewport: Viewport = {
   colorScheme: "light dark",
 };
 
-const ACCENT_SCRIPT = `try{if(localStorage.getItem("landrop.accent")==="blue")document.documentElement.classList.add("accent-blue")}catch(e){}`;
+// The theme (system, light or dark) and chat colour are classes on <html>, set before the first paint
+// so a saved choice never flashes the default. "System" follows the device as it changes.
+const APPEARANCE_SCRIPT = `(function(){var d=document.documentElement,m=matchMedia("(prefers-color-scheme: dark)");function get(k){try{return localStorage.getItem(k)}catch(e){}}function theme(){var t=get("landrop.theme");d.classList.toggle("dark",t==="dark"||(t!=="light"&&m.matches))}theme();m.addEventListener("change",theme);window.addEventListener("landrop:theme",theme);if(get("landrop.accent")==="blue")d.classList.add("accent-blue")})()`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className="h-full antialiased" suppressHydrationWarning>
       <head>
-        {/* Applies the chosen chat colour before the first paint, so a blue choice never flashes green. */}
-        <script dangerouslySetInnerHTML={{ __html: ACCENT_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_SCRIPT }} />
       </head>
       <body className="min-h-full">{children}</body>
     </html>

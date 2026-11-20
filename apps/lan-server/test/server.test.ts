@@ -28,6 +28,7 @@ import {
 } from "@landrop/protocol";
 import { buildApp, contentDisposition, parseRange } from "../src/app.js";
 import { startHost } from "../src/host.js";
+import type { Network } from "../src/network.js";
 import { hostsOf, parseGateway, parseNeighbours } from "../src/network.js";
 
 let base: string;
@@ -1171,23 +1172,60 @@ describe("history per network", () => {
     expect(done()).toBe(true);
   };
 
+  // Two different Wi-Fis whose routers use the same common address, as most home routers do.
+  const home = { gateway: "192.168.0.1", router: "3c:78:95:1e:4d:9c" };
+  const office = { gateway: "192.168.0.1", router: "a4:2b:b0:11:22:33" };
+  const homeId = "3c-78-95-1e-4d-9c";
+  const officeId = "a4-2b-b0-11-22-33";
+  const pause = () => new Promise((r) => setTimeout(r, 50));
+
   it("keeps each network's history in its own folder, and switches when the computer changes network", async () => {
-    let network: string | undefined = "home-router";
-    const host = await startHost({ dataDir, port: await freePort(), networkId: async () => network, checkMs: 10 });
+    let network: Network | undefined = home;
+    const host = await startHost({ dataDir, port: await freePort(), readNetwork: async () => network, checkMs: 10 });
     try {
-      expect(existsSync(join(dataDir, "networks", "home-router", "landrop.db"))).toBe(true);
+      expect(existsSync(join(dataDir, "networks", homeId, "landrop.db"))).toBe(true);
 
       // Dropping off Wi-Fi for a moment isn't a new network: home's history stays open.
       network = undefined;
-      await new Promise((r) => setTimeout(r, 50));
-      expect(host.networkId()).toBe("home-router");
+      await pause();
+      expect(host.networkId()).toBe(homeId);
 
-      network = "office-router";
-      await until(() => host.networkId() === "office-router");
-      expect(existsSync(join(dataDir, "networks", "office-router", "landrop.db"))).toBe(true);
+      // Same router address, different router: a different network, so a different history.
+      network = office;
+      await until(() => host.networkId() === officeId);
+      expect(existsSync(join(dataDir, "networks", officeId, "landrop.db"))).toBe(true);
     } finally {
       await host.close();
     }
+  });
+
+  it("stays on the same history when the router's hardware address can't be read for a moment", async () => {
+    let network: Network | undefined = home;
+    const host = await startHost({ dataDir, port: await freePort(), readNetwork: async () => network, checkMs: 10 });
+    try {
+      network = { gateway: home.gateway };
+      await pause();
+      expect(host.networkId()).toBe(homeId);
+      // But a different router address is a different network, even unidentified: never home's history.
+      network = { gateway: "10.0.0.1" };
+      await until(() => host.networkId() === "10-0-0-1");
+    } finally {
+      await host.close();
+    }
+  });
+
+  it("moves history kept under the router's address to the router, once its hardware address can be read", async () => {
+    // Kept while macOS hadn't given LANDrop Local Network access, so only the address was known.
+    let network: Network = { gateway: home.gateway };
+    let host = await startHost({ dataDir, port: await freePort(), readNetwork: async () => network, checkMs: 60_000 });
+    await host.close();
+    await writeFile(join(dataDir, "networks", "192-168-0-1", "files", "m1"), "attachment");
+
+    network = home;
+    host = await startHost({ dataDir, port: await freePort(), readNetwork: async () => network, checkMs: 60_000 });
+    await host.close();
+    expect(existsSync(join(dataDir, "networks", homeId, "files", "m1"))).toBe(true);
+    expect(existsSync(join(dataDir, "networks", "192-168-0-1"))).toBe(false);
   });
 
   it("gives history from before networks were tracked to the network the computer is on", async () => {
@@ -1195,12 +1233,12 @@ describe("history per network", () => {
     await (await buildApp({ dataDir })).close();
     await writeFile(join(dataDir, "files", "m1"), "attachment");
 
-    const host = await startHost({ dataDir, port: await freePort(), networkId: async () => "home-router", checkMs: 60_000 });
+    const host = await startHost({ dataDir, port: await freePort(), readNetwork: async () => home, checkMs: 60_000 });
     await host.close();
 
-    const home = join(dataDir, "networks", "home-router");
-    expect(existsSync(join(home, "landrop.db"))).toBe(true);
-    expect(existsSync(join(home, "files", "m1"))).toBe(true);
+    const folder = join(dataDir, "networks", homeId);
+    expect(existsSync(join(folder, "landrop.db"))).toBe(true);
+    expect(existsSync(join(folder, "files", "m1"))).toBe(true);
     expect(existsSync(join(dataDir, "landrop.db"))).toBe(false);
   });
 });

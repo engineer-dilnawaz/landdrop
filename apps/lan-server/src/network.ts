@@ -106,13 +106,22 @@ async function nameOf(address: string): Promise<string | undefined> {
   return Promise.race([lookup, timeout]);
 }
 
+/** The network this machine is on: its router's address, and its hardware address when that can be read. */
+export interface Network {
+  /** The router's IP address. Many routers share the common ones (192.168.0.1), so alone it can't tell networks apart. */
+  gateway: string;
+  /**
+   * The router's hardware (MAC) address, unique to it, so the same Wi-Fi is recognised however
+   * addresses are handed out. Unreadable when macOS hasn't given LANDrop Local Network access.
+   */
+  router?: string;
+}
+
 /**
- * Which network this machine is on, named by its router's hardware address: the same Wi-Fi gives
- * the same id however addresses are handed out, and reading it needs no location permission (which
- * macOS requires for Wi-Fi names). Falls back to the router's address when its hardware address
- * can't be read; undefined when there's no network at all.
+ * Which network this machine is on, read from its router. Reading it needs no location permission
+ * (which macOS requires for Wi-Fi names). Undefined when there's no network at all.
  */
-export async function currentNetworkId(): Promise<string | undefined> {
+export async function currentNetwork(): Promise<Network | undefined> {
   const gateway = parseGateway(await readRoutes());
   if (!gateway) return undefined;
   let mac = await hardwareAddressOf(gateway);
@@ -120,7 +129,7 @@ export async function currentNetworkId(): Promise<string | undefined> {
     await knock([gateway]);
     mac = await hardwareAddressOf(gateway);
   }
-  return (mac ?? gateway).replace(/[:.]/g, "-");
+  return { gateway, router: mac };
 }
 
 async function readRoutes(): Promise<string> {

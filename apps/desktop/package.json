@@ -1,6 +1,6 @@
 {
   "name": "@landrop/desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "LANDrop for Mac: runs the LANDrop host from the menu bar.",
   "author": "LANDrop",
@@ -46,7 +46,8 @@
       "identity": "-",
       "extendInfo": {
         "LSUIElement": true,
-        "NSMicrophoneUsageDescription": "LANDrop uses the microphone only while you record a voice message."
+        "NSMicrophoneUsageDescription": "LANDrop uses the microphone only while you record a voice message.",
+        "NSLocalNetworkUsageDescription": "LANDrop shares files with the phones and computers on your Wi-Fi, and recognises which Wi-Fi you're on so each one keeps its own chat history."
       },
       "icon": "assets/icon.png",
       "hardenedRuntime": false

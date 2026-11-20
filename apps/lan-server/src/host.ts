@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { buildApp, type AppOptions } from "./app.js";
-import { currentNetworkId } from "./network.js";
+import { currentNetwork, type Network } from "./network.js";
 
 /** How often the host checks whether this computer has moved to another network. */
 const NETWORK_CHECK_MS = 10_000;
@@ -13,7 +13,7 @@ type HostOptions = Omit<AppOptions, "dataDir"> & {
   /** Each network's history is kept in its own folder under here. */
   dataDir: string;
   port: number;
-  networkId?: () => Promise<string | undefined>;
+  readNetwork?: () => Promise<Network | undefined>;
   checkMs?: number;
   onNetworkChange?: (networkId: string) => void;
 };
@@ -27,14 +27,16 @@ type HostOptions = Omit<AppOptions, "dataDir"> & {
 export async function startHost({
   dataDir,
   port,
-  networkId = currentNetworkId,
+  readNetwork = currentNetwork,
   checkMs = NETWORK_CHECK_MS,
   onNetworkChange,
   ...options
 }: HostOptions) {
-  let current = (await networkId()) ?? NO_NETWORK;
+  let network = await readNetwork();
+  let current = network ? idOf(network) : NO_NETWORK;
   await adoptLegacyHistory(dataDir, current);
   const open = async (id: string) => {
+    if (network) await adoptHistoryByAddress(dataDir, network);
     const app = await buildApp({ ...options, dataDir: join(dataDir, "networks", id) });
     await app.listen({ host: "0.0.0.0", port });
     return app;
@@ -44,11 +46,16 @@ export async function startHost({
 
   let switching: Promise<void> | undefined;
   const check = async () => {
-    const next = await networkId();
+    const seen = await readNetwork();
     // Briefly losing Wi-Fi isn't joining another network; wait to see where the computer ends up.
-    if (!next || (next === current && app)) return;
+    if (!seen) return;
+    // Nor is a moment when the router's hardware address can't be read, while its address is unchanged.
+    const sameRouter = !seen.router && network?.router && seen.gateway === network.gateway;
+    const next = sameRouter ? current : idOf(seen);
+    if (next === current && app) return;
     await app?.close();
     app = undefined;
+    network = seen;
     app = await open(next);
     current = next;
     onNetworkChange?.(current);
@@ -68,6 +75,21 @@ export async function startHost({
       await app?.close();
     },
   };
+}
+
+/** A network's folder name: its router's hardware address, or only its address when that can't be read. */
+const idOf = ({ router, gateway }: Network) => (router ?? gateway).replace(/[:.]/g, "-");
+
+/**
+ * History kept while the router's hardware address couldn't be read (macOS hadn't given Local
+ * Network access) is under the router's address. Once the hardware address is known, that history
+ * moves to it, so it isn't left behind, and the address alone no longer stands for this network.
+ */
+async function adoptHistoryByAddress(dataDir: string, network: Network): Promise<void> {
+  if (!network.router) return;
+  const byAddress = join(dataDir, "networks", idOf({ gateway: network.gateway }));
+  const byRouter = join(dataDir, "networks", idOf(network));
+  if (existsSync(byAddress) && !existsSync(byRouter)) await rename(byAddress, byRouter);
 }
 
 /**

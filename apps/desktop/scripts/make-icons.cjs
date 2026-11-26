@@ -7,7 +7,7 @@ const { join } = require("node:path");
 const root = join(__dirname, "../../..");
 
 /**
- * The icon on a 1024 grid. `inset` and `radius` shape the blue tile: the Mac app uses Apple's grid
+ * The icon on a 1024 grid. `inset` and `radius` shape the emerald tile: the Mac app uses Apple's grid
  * (a rounded square with a margin); browser icons fill their square. Small icons get one bold wave,
  * as two thin ones blur together. `mono` is the black menu bar version, which macOS recolours.
  */
@@ -22,7 +22,7 @@ function svg({ inset = 0, radius = 0, waves = 2, mono = false }) {
          <path d="M115 230 A360 360 0 0 1 709 230" opacity="${mono ? 1 : 0.3}"/>`
       : `<path d="M160 300 A300 300 0 0 1 664 300" stroke-width="64" opacity="${mono ? 1 : 0.6}"/>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4fb3ff"/><stop offset="1" stop-color="#0066e0"/></linearGradient></defs>
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#047857"/></linearGradient></defs>
   ${mono ? "" : `<rect x="${inset}" y="${inset}" width="${tile}" height="${tile}" rx="${radius}" fill="url(#g)"/>`}
   <g transform="translate(${inset} ${inset}) scale(${k})">
     <path d="M412 230 C412 230 285 400 285 485 A127 127 0 0 0 539 485 C539 400 412 230 412 230 Z" fill="${fg}"/>
@@ -59,9 +59,11 @@ app.whenReady().then(async () => {
   });
   writeFileSync(join(root, "apps/web/app/icon.svg"), favicon);
   writeFileSync(join(root, "site/icon.svg"), favicon);
+  writeFileSync(join(root, "apps/site/public/icon.svg"), favicon);
   await render(mac, 1024, "apps/desktop/assets/icon.png");
   await render(touch, 180, "apps/web/app/apple-icon.png");
   await render(touch, 180, "site/apple-touch-icon.png");
+  await render(touch, 180, "apps/site/public/apple-touch-icon.png");
   await render(tray, 18, "apps/desktop/assets/trayTemplate.png");
   await render(tray, 36, "apps/desktop/assets/trayTemplate@2x.png");
   app.quit();

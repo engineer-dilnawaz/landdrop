@@ -1,0 +1,53 @@
+name: Release
+
+# Push a version tag (git tag v0.1.3 && git push origin v0.1.3) to build the installers
+# and publish them as a GitHub release. The tag sets the app version, which "Check for Updates" compares.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm pkg set version=${GITHUB_REF_NAME#v} --workspace @landrop/desktop
+        shell: bash
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-win
+          path: apps/desktop/release/LANDrop-win-x64.exe
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm pkg set version=${GITHUB_REF_NAME#v} --workspace @landrop/desktop
+      - run: npm run dist:mac && npm run dist:mac-intel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-mac
+          path: |
+            apps/desktop/release/LANDrop-mac-arm64.dmg
+            apps/desktop/release/LANDrop-mac-x64.dmg
+
+  release:
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" LANDrop-*.dmg LANDrop-*.exe --repo "$GITHUB_REPOSITORY" --title "LANDrop ${GITHUB_REF_NAME#v}" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

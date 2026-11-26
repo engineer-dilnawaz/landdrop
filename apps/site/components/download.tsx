@@ -1,6 +1,6 @@
 "use client";
 
-import { DocumentDownload } from "iconsax-react";
+import { Import } from "iconsax-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DOWNLOADS, downloadUrl, useRecommended, type DownloadKey } from "@/lib/platform";
@@ -10,7 +10,7 @@ export function DownloadButton({ className, size = "lg", short = false }: { clas
   const key = useRecommended();
   return (
     <a href={downloadUrl(key)} className={cn(buttonVariants({ size }), "h-11 gap-2 px-5 text-[15px]", size === "default" && "h-9 px-3.5 text-sm", className)}>
-      <DocumentDownload size={size === "lg" ? 20 : 18} color="currentColor" />
+      <Import size={size === "lg" ? 20 : 18} color="currentColor" />
       {short ? "Download" : DOWNLOADS[key].label}
     </a>
   );

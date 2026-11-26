@@ -2,7 +2,7 @@
   "name": "@landrop/desktop",
   "version": "0.1.2",
   "private": true,
-  "description": "LANDrop for Mac: runs the LANDrop host from the menu bar.",
+  "description": "LANDrop for Mac and Windows: runs the LANDrop host from the menu bar or system tray.",
   "author": "LANDrop",
   "main": "dist/main.cjs",
   "scripts": {
@@ -10,7 +10,9 @@
     "start": "electron .",
     "dist": "electron-builder --mac",
     "typecheck": "tsc -p .",
-    "icons": "electron scripts/make-icons.cjs"
+    "icons": "electron scripts/make-icons.cjs",
+    "dist:mac-intel": "electron-builder --mac --x64",
+    "dist:win": "electron-builder --win --x64"
   },
   "devDependencies": {
     "@landrop/lan-server": "*",
@@ -52,6 +54,15 @@
       "icon": "assets/icon.png",
       "hardenedRuntime": false
     },
-    "artifactName": "LANDrop-mac-${arch}.${ext}"
+    "artifactName": "LANDrop-mac-${arch}.${ext}",
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png",
+      "artifactName": "LANDrop-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    }
   }
 }

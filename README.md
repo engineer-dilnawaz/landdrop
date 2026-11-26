@@ -8,10 +8,10 @@
 No cloud, no accounts, no app to install on phones.
 
 [![Latest release](https://img.shields.io/github/v/release/engineer-dilnawaz/landdrop?label=release)](https://github.com/engineer-dilnawaz/landdrop/releases/latest)
-![Platform](https://img.shields.io/badge/host-macOS%20(Apple%20silicon)-black)
+![Platform](https://img.shields.io/badge/host-macOS%20%7C%20Windows-black)
 ![Clients](https://img.shields.io/badge/clients-any%20web%20browser-blue)
 
-[**Download for Mac**](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg) · [Website](https://landdrop.vercel.app) · [Releases](https://github.com/engineer-dilnawaz/landdrop/releases)
+[**Download for Mac (Apple silicon)**](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg) · [Mac (Intel)](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-x64.dmg) · [Windows](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-win-x64.exe) · [Website](https://landdrop.vercel.app) · [Releases](https://github.com/engineer-dilnawaz/landdrop/releases)
 
 </div>
 
@@ -35,20 +35,27 @@ Moving a video from an Android phone to a Mac, or a document from a Windows lapt
 | **Live streaming of large files** | Huge files are served straight from the sender's device instead of being copied first. |
 | **Device discovery** | See who is online on your network in real time. |
 | **QR join** | The Mac shows a QR code; any device scans it to open LANDrop in its browser. |
-| **Menu bar app** | Runs quietly in the Mac menu bar, can start at login, and can keep the Mac awake while plugged in. |
+| **Menu bar / tray app** | Runs quietly in the Mac menu bar or Windows tray, can start at login, and can keep the Mac awake while plugged in. |
 
 ## Getting started
 
 ### 1. Install on your Mac
 
-1. [Download `LANDrop-mac-arm64.dmg`](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg) (Apple silicon: M1 and newer).
+1. Download [`LANDrop-mac-arm64.dmg`](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg) (Apple silicon: M1 and newer) or [`LANDrop-mac-x64.dmg`](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-x64.dmg) (Intel Macs).
 2. Open the dmg and drag **LANDrop** into **Applications**.
 3. Open LANDrop. Because it isn't notarized by Apple yet, macOS will block the first launch. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
 4. When macOS asks whether LANDrop may accept incoming network connections, click **Allow**. Without this, other devices can't reach it.
 
+#### Windows
+
+1. Download [`LANDrop-win-x64.exe`](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-win-x64.exe).
+2. Run it; LANDrop installs itself and opens. If SmartScreen warns that it's from an unknown publisher (it isn't code-signed yet), click **More info → Run anyway**.
+3. When Windows Firewall asks, allow LANDrop on **private networks**. Without this, other devices can't reach it.
+4. LANDrop lives in the system tray; click its icon to show the QR code.
+
 ### 2. Connect your devices
 
-1. Click the LANDrop icon in the menu bar to show the QR code.
+1. Click the LANDrop icon in the menu bar (Mac) or system tray (Windows) to show the QR code.
 2. On any phone or computer **on the same Wi-Fi**, scan the code (or type the address shown under it).
 3. LANDrop opens in the browser. Pick a name and start chatting.
 
@@ -95,7 +102,7 @@ This is an npm workspaces monorepo built with [Turborepo](https://turbo.build).
 
 | Path | What it is |
 |---|---|
-| `apps/desktop` | Electron menu bar app for macOS; embeds the LAN server. |
+| `apps/desktop` | Electron menu bar / tray app for macOS and Windows; embeds the LAN server. |
 | `apps/lan-server` | Fastify server: HTTP API, WebSocket chat, file storage and live streaming. |
 | `apps/web` | Next.js client (static export) that every device opens in its browser. |
 | `packages/protocol` | Shared types and constants used by the server and clients. |
@@ -112,7 +119,9 @@ npm run dev        # web app on :3000 plus the LAN server on :4545, with reload
 npm test           # server tests (Vitest)
 npm run typecheck  # TypeScript across all workspaces
 npm run build      # build all workspaces
-npm run dist:mac   # package the Mac app into a .dmg (apps/desktop/release)
+npm run dist:mac        # Apple silicon .dmg (apps/desktop/release)
+npm run dist:mac-intel  # Intel Mac .dmg
+npm run dist:win        # Windows installer (.exe)
 ```
 
 To run the server headless without the Mac app, build the web app and start it:

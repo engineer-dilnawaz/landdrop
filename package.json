@@ -12,7 +12,9 @@
     "start": "turbo run start",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "dist:mac": "turbo run dist --filter=@landrop/desktop"
+    "dist:mac": "turbo run dist --filter=@landrop/desktop",
+    "dist:mac-intel": "turbo run dist:mac-intel --filter=@landrop/desktop",
+    "dist:win": "turbo run dist:win --filter=@landrop/desktop"
   },
   "devDependencies": {
     "turbo": "^2"

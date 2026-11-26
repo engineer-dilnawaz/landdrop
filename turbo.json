@@ -46,6 +46,20 @@
         "build"
       ],
       "cache": false
+    },
+    "@landrop/desktop#dist:mac-intel": {
+      "dependsOn": [
+        "@landrop/web#build",
+        "build"
+      ],
+      "cache": false
+    },
+    "@landrop/desktop#dist:win": {
+      "dependsOn": [
+        "@landrop/web#build",
+        "build"
+      ],
+      "cache": false
     }
   }
 }

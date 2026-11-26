@@ -5,14 +5,14 @@ import { join } from "node:path";
 import { joinUrls } from "@landrop/lan-server/app";
 import { startHost } from "@landrop/lan-server/host";
 import { DEFAULT_LAN_PORT } from "@landrop/protocol";
-import { BrowserWindow, Menu, Tray, app, clipboard, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell, ShareMenu, type MenuItemConstructorOptions } from "electron";
+import { BrowserWindow, Menu, Tray, app, nativeImage, clipboard, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell, ShareMenu, type MenuItemConstructorOptions } from "electron";
 import QRCode from "qrcode";
 import { MAX_SCREENSHOTS, parseReport, saveReport } from "./reports";
 
 /**
- * LANDrop for Mac: runs the LANDrop host from the menu bar, so phones on this Wi-Fi can reach it
- * whenever the Mac is awake. With the user's permission it starts at login and keeps the Mac
- * from idling to sleep while plugged in.
+ * LANDrop for Mac and Windows: runs the LANDrop host from the menu bar or system tray, so phones on this
+ * Wi-Fi can reach it whenever the computer is awake. With the user's permission it starts at login and keeps
+ * the computer from idling to sleep while plugged in.
  */
 
 // Overridable like the terminal server's, so a development build can run beside the installed app.
@@ -20,7 +20,11 @@ const PORT = Number(process.env.LANDROP_PORT ?? DEFAULT_LAN_PORT);
 // The same place `npm start` uses, so history is shared whichever way LANDrop runs. Each network gets its own folder in it.
 const DATA_DIR = process.env.LANDROP_DATA_DIR ?? join(homedir(), ".landrop");
 const WEB_DIR = app.isPackaged ? join(process.resourcesPath, "web") : join(__dirname, "../../web/out");
-const ICON = join(__dirname, "../assets/trayTemplate.png");
+const MAC = process.platform === "darwin";
+// The Mac menu bar tints a template image to match; the Windows tray needs the full-colour icon.
+const ICON = MAC ? join(__dirname, "../assets/trayTemplate.png") : nativeImage.createFromPath(join(__dirname, "../assets/icon.png")).resize({ width: 32, height: 32 });
+const COMPUTER = MAC ? "Mac" : "computer";
+const TRAY = MAC ? "menu bar" : "system tray";
 const REPO = "engineer-dilnawaz/landdrop";
 const WEBSITE = "https://landdrop.vercel.app";
 
@@ -92,7 +96,7 @@ async function start() {
     if (!report) return false;
     saveReport(join(app.getPath("userData"), "reports.db"), report, {
       appVersion: app.getVersion(),
-      osVersion: `macOS ${process.getSystemVersion()} (Darwin ${release()})`,
+      osVersion: `${MAC ? "macOS" : process.platform} ${process.getSystemVersion()} (${release()})`,
     });
     return true;
   });
@@ -105,6 +109,8 @@ async function start() {
     if (filePath) await writeFile(filePath, await qrImage(joinUrls(PORT)[0]));
   });
   ipcMain.handle("qr:share", async (event) => {
+    // The share sheet only exists on macOS; the QR page doesn't offer the button elsewhere.
+    if (!MAC) return;
     const url = joinUrls(PORT)[0];
     if (!qrWindow || event.sender !== qrWindow.webContents || !url) return;
     // Shared as a file, so apps like Messages and AirDrop receive the image itself.
@@ -125,7 +131,7 @@ async function start() {
   updateKeepAwake();
 
   if (app.isPackaged && !settings.askedAboutLogin) await askAboutLogin();
-  // Started by the Mac at login: stay quietly in the menu bar.
+  // Started by the Mac at login: stay quietly in the menu bar or tray.
   if (!app.getLoginItemSettings().wasOpenedAtLogin) await showQr();
 }
 
@@ -171,7 +177,7 @@ function optionItems(): MenuItemConstructorOptions[] {
       click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }),
     },
     {
-      label: "Keep Mac Awake While Plugged In",
+      label: `Keep ${COMPUTER === "Mac" ? "Mac" : "Computer"} Awake While Plugged In`,
       type: "checkbox",
       checked: settings.keepAwake,
       click: (item) => {
@@ -194,10 +200,7 @@ function appMenu(): Menu {
         { type: "separator" },
         ...optionItems(),
         { type: "separator" },
-        { role: "hide" },
-        { role: "hideOthers" },
-        { role: "unhide" },
-        { type: "separator" },
+        ...(MAC ? ([{ role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }] as const) : []),
         { label: "Quit LANDrop", accelerator: "CmdOrCtrl+Q", click: () => app.quit() },
       ],
     },
@@ -287,7 +290,7 @@ async function askAboutLogin() {
     type: "question",
     message: "Start LANDrop when you log in?",
     detail:
-      "LANDrop runs quietly in the menu bar, so phones on this Wi-Fi can reach it whenever this Mac is awake. You can change this anytime from the menu bar icon.",
+      `LANDrop runs quietly in the ${TRAY}, so phones on this Wi-Fi can reach it whenever this ${COMPUTER} is awake. You can change this anytime from the ${TRAY} icon.`,
     buttons: ["Start at Login", "Not Now"],
     defaultId: 0,
     cancelId: 1,
@@ -297,7 +300,7 @@ async function askAboutLogin() {
   saveSettings();
 }
 
-/** Stops idle sleep while on power, if the user asked; a closed lid still sleeps, which macOS doesn't let apps prevent. */
+/** Stops idle sleep while on power, if the user asked; a closed lid still sleeps, which neither macOS nor Windows lets apps prevent. */
 function updateKeepAwake() {
   const wanted = settings.keepAwake && !powerMonitor.isOnBatteryPower();
   if (wanted && awakeBlocker === undefined) awakeBlocker = powerSaveBlocker.start("prevent-app-suspension");
@@ -447,7 +450,7 @@ function reportPage(): string {
   </form>
   <div class="done">
     <h1>Thanks for the report</h1>
-    <p>It's saved on this Mac.</p>
+    <p>It's saved on this ${COMPUTER}.</p>
     <div class="actions" style="justify-content:center"><button type="button" onclick="window.close()">Close</button></div>
   </div>
   <script>
@@ -504,7 +507,7 @@ function reportPage(): string {
 </body></html>`;
 }
 
-/** The QR window's page. Addresses are this Mac's own IPv4 addresses, so nothing here needs escaping. */
+/** The QR window's page. Addresses are this computer's own IPv4 addresses, so nothing here needs escaping. */
 function qrPage(urls: string[], qr: string | undefined): string {
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>Join LANDrop</title>
@@ -525,17 +528,17 @@ function qrPage(urls: string[], qr: string | undefined): string {
   <h1>Join LANDrop</h1>
   ${
     qr
-      ? `<p>Scan with a phone camera. It must be on the same Wi-Fi as this Mac.</p>
+      ? `<p>Scan with a phone camera. It must be on the same Wi-Fi as this ${COMPUTER}.</p>
   <div class="qr"><img src="${qr}" alt="QR code for ${urls[0]}"></div>
   ${urls.map((u) => `<p class="url">${u.replace("http://", "")}</p>`).join("")}
   <div class="actions">
     <button onclick="window.landrop.saveQr()">Save Image…</button>
-    <button onclick="window.landrop.shareQr()">Share…</button>
+    ${MAC ? '<button onclick="window.landrop.shareQr()">Share…</button>' : ""}
   </div>
   <p class="help">Can't open it on Android? In Chrome, turn off Settings → Privacy and security → Always use secure connections.</p>`
-      : `<p>This Mac isn't connected to a network. Join a Wi-Fi network, then open this again.</p>`
+      : `<p>This ${COMPUTER} isn't connected to a network. Join a Wi-Fi network, then open this again.</p>`
   }
-  <p class="help">LANDrop keeps running in the menu bar when you close this window.</p>
+  <p class="help">LANDrop keeps running in the ${TRAY} when you close this window.</p>
 </body></html>`;
 }
 

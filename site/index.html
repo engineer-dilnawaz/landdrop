@@ -397,7 +397,7 @@
         <a href="#help">Help</a>
         <a href="https://github.com/engineer-dilnawaz/landdrop" target="_blank" rel="noopener">GitHub</a>
       </div>
-      <a class="btn" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg">
+      <a class="btn" data-dl href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg">
         <svg class="dl-arrow"><use href="#i-download"/></svg>Download
       </a>
     </div>
@@ -410,12 +410,12 @@
           <h1><span>Your Wi-Fi is</span><span>the cloud now.</span></h1>
           <p class="lead">Chat and send files of any size between every phone, tablet and computer in the room. It all moves across your own network, so nothing is uploaded anywhere.</p>
           <div class="cta-row">
-            <a class="btn" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg">
-              <svg class="dl-arrow"><use href="#i-download"/></svg>Download for Mac
+            <a class="btn" data-dl href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg">
+              <svg class="dl-arrow"><use href="#i-download"/></svg><span>Download for Mac</span>
             </a>
             <a class="btn quiet" href="#install">See how it works</a>
           </div>
-          <p class="fine">Free for Macs with Apple silicon (M1 and newer). Phones and other computers just use their browser.</p>
+          <p class="fine dl-other">Also available for: <a data-pick="mac-arm64" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg">Mac (Apple silicon)</a> · <a data-pick="mac-x64" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-x64.dmg">Mac (Intel)</a> · <a data-pick="win-x64" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-win-x64.exe">Windows</a>. Phones just use their browser.</p>
           <ul class="proof">
             <li><svg><use href="#i-check"/></svg>No accounts</li>
             <li><svg><use href="#i-check"/></svg>No file size limit</li>
@@ -492,7 +492,7 @@
         </div>
         <div class="install reveal">
           <ol class="steps" role="tablist" aria-label="Installation steps">
-            <li><button class="step" role="tab" aria-selected="true" aria-controls="sc1" id="st1"><div><strong>Download LANDrop</strong><span>Get the free installer for Macs with Apple silicon. It's a single <kbd>.dmg</kbd> file of about 120 MB.</span></div></button></li>
+            <li><button class="step" role="tab" aria-selected="true" aria-controls="sc1" id="st1"><div><strong>Download LANDrop</strong><span>Get the free installer for your Mac or Windows PC. It's a single file of about 120 MB.</span></div></button></li>
             <li><button class="step" role="tab" aria-selected="false" aria-controls="sc2" id="st2" tabindex="-1"><div><strong>Move it to Applications</strong><span>Open the downloaded file and drag the LANDrop icon onto the Applications folder.</span></div></button></li>
             <li><button class="step" role="tab" aria-selected="false" aria-controls="sc3" id="st3" tabindex="-1"><div><strong>Allow it the first time</strong><span>LANDrop isn't notarized by Apple yet, so macOS asks first. Open it once, then go to System Settings, Privacy &amp; Security, and click <kbd>Open Anyway</kbd>.</span></div></button></li>
             <li><button class="step" role="tab" aria-selected="false" aria-controls="sc4" id="st4" tabindex="-1"><div><strong>Let devices connect</strong><span>When macOS asks whether LANDrop can accept incoming network connections, click <kbd>Allow</kbd>. Without it, phones can't reach your Mac.</span></div></button></li>
@@ -633,7 +633,7 @@
         <div class="help reveal">
           <div>
             <details><summary>Is LANDrop free?</summary><p>Yes. The Mac app is free, and other devices don't need anything installed.</p></details>
-            <details><summary>Which Macs does it run on?</summary><p>Macs with Apple silicon (M1 and newer). Any device with a modern web browser can join: iPhone, iPad, Android, Windows, Linux or another Mac.</p></details>
+            <details><summary>Which computers can host it?</summary><p>Macs (Apple silicon or Intel) and Windows PCs. Any device with a modern web browser can join: iPhone, iPad, Android, Windows, Linux or another Mac.</p></details>
             <details><summary>Where are my messages and files kept?</summary><p>On the Mac running LANDrop, in a folder called .landrop in your home folder. Nothing is sent to a server, and the chat stays until you clear it.</p></details>
             <details><summary>Does it need the internet?</summary><p>No. Devices only need to be on the same Wi-Fi or local network as the Mac.</p></details>
           </div>
@@ -655,7 +655,7 @@
             <h2>Turn your Mac into the hub of the room</h2>
             <p>Free download. Phones join with a scan, and nothing ever leaves your network.</p>
           </div>
-          <a class="btn" href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg"><svg class="dl-arrow"><use href="#i-download"/></svg>Download for Mac</a>
+          <a class="btn" data-dl href="https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg"><svg class="dl-arrow"><use href="#i-download"/></svg><span>Download for Mac</span></a>
         </div>
       </div>
     </section>
@@ -671,6 +671,46 @@
   </footer>
 
   <script>
+    // Recommend the download that fits this machine; the links under the button still offer every option.
+    (function () {
+      var B = "https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/";
+      var FILES = {
+        "mac-arm64": { file: "LANDrop-mac-arm64.dmg", label: "Download for Mac" },
+        "mac-x64": { file: "LANDrop-mac-x64.dmg", label: "Download for Mac (Intel)" },
+        "win-x64": { file: "LANDrop-win-x64.exe", label: "Download for Windows" }
+      };
+      function apply(key) {
+        var f = FILES[key];
+        document.querySelectorAll("[data-dl]").forEach(function (a) {
+          a.href = B + f.file;
+          var span = a.querySelector("span");
+          if (span) span.textContent = f.label;
+        });
+        document.querySelectorAll("[data-pick]").forEach(function (a) {
+          a.style.display = a.getAttribute("data-pick") === key ? "none" : "";
+        });
+      }
+      var ua = navigator.userAgent, key = "mac-arm64";
+      if (/Windows/i.test(ua)) key = "win-x64";
+      else if (/Macintosh|Mac OS X/i.test(ua) && !/iPhone|iPad/i.test(ua)) {
+        // Browsers hide the Mac chip, so ask for it (Chromium) or read the GPU name; otherwise assume Apple silicon, the common case.
+        key = "mac-arm64";
+        var uad = navigator.userAgentData;
+        if (uad && uad.getHighEntropyValues) {
+          uad.getHighEntropyValues(["architecture"]).then(function (v) {
+            if (v.architecture === "x86") apply("mac-x64");
+          }, function () {});
+        } else {
+          try {
+            var gl = document.createElement("canvas").getContext("webgl");
+            var ext = gl && gl.getExtension("WEBGL_debug_renderer_info");
+            var gpu = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : "";
+            if (/Intel|AMD|Radeon/i.test(gpu)) key = "mac-x64";
+          } catch (e) {}
+        }
+      }
+      apply(key);
+    })();
   (() => {
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 

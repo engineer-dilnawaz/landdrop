@@ -1,5 +1,7 @@
 "use client";
 
+import { AvatarArt, defaultAvatar } from "./avatars";
+import { Add, ArrowDown2, ArrowLeft, Back, Camera, Clock, Copy, Danger, Devices, DocumentDownload, DocumentText, EmojiHappy, Export, Folder2, Forward, Gallery, InfoCircle, Lock1, MessageAdd1, Messages1, More, Notification, Pause, People, Play, Scan, SearchNormal1, Send2, Setting2, Sun1, Trash, Wifi } from "iconsax-react";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MAX_DEVICE_NAME_LENGTH, isAvailable, type Message } from "@landrop/protocol";
@@ -40,7 +42,7 @@ export function Sheet({
         aria-modal="true"
         aria-label={label}
         aria-labelledby={labelledBy}
-        className={`sheet max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-[28px] bg-panel pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_40px_rgba(11,20,26,.22)] ${className}`}
+        className={`sheet max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl border-t border-divider bg-panel pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_40px_rgba(0,0,0,.25)] ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         <span aria-hidden className="mx-auto mb-1 mt-2.5 block h-1 w-9 rounded-full bg-divider" />
@@ -52,12 +54,12 @@ export function Sheet({
 }
 
 /** A row in a sheet's list of actions. */
-export const SHEET_ITEM = "flex w-full items-center gap-4 px-6 py-3.5 text-left text-[15px] hover:bg-hover";
+export const SHEET_ITEM = "flex w-full items-center gap-4 px-6 py-3.5 text-left text-[15px] transition-colors hover:bg-hover active:bg-field";
 
 export const TEXT_BUTTON =
-  "rounded-full px-5 py-2.5 text-[14px] font-medium text-accent hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent";
+  "rounded-lg px-4 py-2.5 text-[14px] font-medium text-accent transition-all hover:bg-hover active:scale-[0.97] disabled:opacity-40 disabled:hover:bg-transparent";
 export const FILLED_BUTTON =
-  "rounded-full bg-accent px-5 py-2.5 text-[14px] font-medium text-white hover:brightness-105 disabled:opacity-40";
+  "rounded-lg bg-accent px-5 py-2.5 text-[14px] font-medium text-white shadow-sm transition-all hover:brightness-110 active:scale-[0.97] disabled:opacity-40";
 
 /** WhatsApp-style dialog with a text field for choosing your name in the chat. */
 export function RenameDialog({
@@ -125,6 +127,10 @@ export function MessageSheet({
   saveUrl,
   canRemove,
   onReply,
+  onSelect,
+  onForward,
+  pinned,
+  onPin,
   onInfo,
   onRemove,
   onClose,
@@ -133,6 +139,14 @@ export function MessageSheet({
   saveUrl: string;
   canRemove: boolean;
   onReply: () => void;
+  /** Starts picking several messages, beginning with this one. */
+  onSelect: () => void;
+  /** Sends a copy to another chat; absent when the message can't be copied (a live or unfinished file). */
+  onForward?: () => void;
+  /** This is the chat's pinned message. */
+  pinned: boolean;
+  /** Pins this message to the top of the chat, or unpins it. */
+  onPin: () => void;
   /** Your own messages: who has read them. */
   onInfo?: () => void;
   onRemove: () => void;
@@ -170,6 +184,20 @@ export function MessageSheet({
             Save
           </a>
         )}
+        {onForward && (
+          <button onClick={onForward} className={item}>
+            <ForwardIcon size={20} />
+            Forward
+          </button>
+        )}
+        <button onClick={onPin} className={item}>
+          <PinIcon size={20} />
+          {pinned ? "Unpin" : "Pin"}
+        </button>
+        <button onClick={onSelect} className={item}>
+          <TickIcon />
+          Select
+        </button>
         {onInfo && (
           <button onClick={onInfo} className={item}>
             <InfoIcon />
@@ -186,6 +214,42 @@ export function MessageSheet({
           <CloseIcon size={20} />
           Cancel
         </button>
+    </Sheet>
+  );
+}
+
+/** What a held chat in the list can do: pin it to the top, or clear or delete it. */
+export function ChatActionsSheet({
+  title,
+  pinned,
+  deleteLabel,
+  onPin,
+  onDelete,
+  onClose,
+}: {
+  title: string;
+  pinned: boolean;
+  /** "Clear chat" or "Delete chat". */
+  deleteLabel: string;
+  onPin: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Sheet label={`${title} actions`} onClose={onClose}>
+      <h2 className="truncate px-6 pb-1 pt-1 text-[17px] font-medium">{title}</h2>
+      <button onClick={onPin} className={SHEET_ITEM} autoFocus>
+        <PinIcon size={20} />
+        {pinned ? "Unpin from top" : "Pin to top"}
+      </button>
+      <button onClick={onDelete} className={`${SHEET_ITEM} text-danger`}>
+        <TrashIcon />
+        {deleteLabel}
+      </button>
+      <button onClick={onClose} className={`${SHEET_ITEM} text-muted`}>
+        <CloseIcon size={20} />
+        Cancel
+      </button>
     </Sheet>
   );
 }
@@ -240,21 +304,60 @@ const iconProps = {
   "aria-hidden": true,
 } as const;
 
-type IconProps = { size?: number };
+/**
+ * The app's icons are Iconsax's: thin, even strokes that turn solid with `bold`, used for the
+ * active tab. Each keeps the name and default size the app already used.
+ */
+type IconProps = { size?: number; bold?: boolean };
+type Glyph = typeof Copy;
+const icon = (Glyph: Glyph, defaultSize: number, variant: "Linear" | "Bold" = "Linear") =>
+  function AppIcon({ size = defaultSize, bold }: IconProps) {
+    return <Glyph size={size} color="currentColor" variant={bold ? "Bold" : variant} aria-hidden />;
+  };
+
+export const CopyIcon = icon(Copy, 24);
+export const SaveIcon = icon(DocumentDownload, 24);
+export const ReplyIcon = icon(Back, 24);
+export const ForwardIcon = icon(Forward, 24);
+export const BellIcon = icon(Notification, 24);
+export const SunIcon = icon(Sun1, 24);
+export const TrashIcon = icon(Trash, 20);
+export const ShareIcon = icon(Export, 24);
+export const SmileyIcon = icon(EmojiHappy, 24);
+export const PlayIcon = icon(Play, 22, "Bold");
+export const PauseIcon = icon(Pause, 22, "Bold");
+export const PeopleIcon = icon(People, 24);
+export const WifiIcon = icon(Wifi, 24);
+export const BackIcon = icon(ArrowLeft, 24);
+export const QrIcon = icon(Scan, 24);
+export const PlusIcon = icon(Add, 24);
+export const SendIcon = icon(Send2, 22, "Bold");
+export const FileIcon = icon(DocumentText, 24);
+export const ImageIcon = icon(Gallery, 24);
+export const CameraIcon = icon(Camera, 24);
+export const FolderIcon = icon(Folder2, 24);
+export const ChatsIcon = icon(Messages1, 24);
+export const DevicesIcon = icon(Devices, 24);
+export const SettingsIcon = icon(Setting2, 24);
+export const NewChatIcon = icon(MessageAdd1, 24);
+export const SearchIcon = icon(SearchNormal1, 20);
+export const ChevronIcon = icon(ArrowDown2, 20);
+export const LockIcon = icon(Lock1, 16);
+export const InfoIcon = icon(InfoCircle, 20);
+export const ClockIcon = icon(Clock, 14);
+export const AlertIcon = icon(Danger, 14);
+/** Iconsax has no pin, so this one is drawn to match: the same thin rounded stroke. */
+export const PinIcon = ({ size = 20 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M12 16.5V22" />
+    <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z" />
+  </svg>
+);
+
+/** Three dots, standing up: the menu button. */
+export const MenuIcon = ({ size = 24 }: IconProps) => <More size={size} color="currentColor" variant="Linear" aria-hidden style={{ transform: "rotate(90deg)" }} />;
+
 const sized = (size = 24) => ({ ...iconProps, width: size, height: size, strokeWidth: 1.8 });
-
-export const CopyIcon = ({ size }: IconProps) => (
-  <svg {...sized(size)}>
-    <rect x="9" y="9" width="12" height="12" rx="2" />
-    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-  </svg>
-);
-
-export const SaveIcon = ({ size }: IconProps) => (
-  <svg {...sized(size)}>
-    <path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14" />
-  </svg>
-);
 
 /**
  * The async Clipboard API only exists on secure origins, and LAN pages are plain
@@ -328,19 +431,12 @@ export function Avatar({
   size = "small",
 }: {
   name: string;
-  /** What picks the colour: a device or chat id, so it survives renames. Defaults to the name. */
+  /** What picks the default avatar: a device or chat id, so it survives renames. Defaults to the name. */
   seed?: string;
   size?: keyof typeof AVATAR_SIZES;
 }) {
   const photo = useContext(AvatarPhotos)(seed ?? "");
   const [failed, setFailed] = useState<string>();
-  const initials = name
-    .split(/\s+/)
-    // Skip separators like "·" and filler words, so "Mac · Chrome" reads "MC".
-    .filter((w) => /^[\p{L}\p{N}]/u.test(w) && !/^(on|the)$/i.test(w))
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase())
-    .join("");
   if (photo && failed !== photo)
     return (
       // eslint-disable-next-line @next/next/no-img-element -- served by the LAN host
@@ -352,70 +448,9 @@ export function Avatar({
         className={`shrink-0 rounded-full bg-field object-cover ${AVATAR_SIZES[size]}`}
       />
     );
-  return (
-    <span
-      className={`flex shrink-0 items-center justify-center rounded-full font-medium text-white ${AVATAR_SIZES[size]}`}
-      style={{ background: colourFor(seed ?? name) }}
-    >
-      {initials || "?"}
-    </span>
-  );
+  // No picture chosen: one of the preset avatars, picked from the id so a device always looks the same.
+  return <AvatarArt id={defaultAvatar(seed ?? name)} className={`shrink-0 rounded-full ${AVATAR_SIZES[size]}`} />;
 }
-
-export const ReplyIcon = ({ size }: IconProps) => (
-  <svg {...sized(size)}>
-    <path d="m9 17-5-5 5-5" />
-    <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-  </svg>
-);
-
-export const TrashIcon = ({ size = 20 }: IconProps) => (
-  <svg {...sized(size)}>
-    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-  </svg>
-);
-
-export const ShareIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <path d="M12 15V3.5m0 0L7.5 8M12 3.5 16.5 8M8 11H6.5A1.5 1.5 0 0 0 5 12.5v6A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-6a1.5 1.5 0 0 0-1.5-1.5H16" />
-  </svg>
-);
-
-export const SmileyIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" />
-    <circle cx="9" cy="10" r=".9" fill="currentColor" />
-    <circle cx="15" cy="10" r=".9" fill="currentColor" />
-  </svg>
-);
-
-export const MicIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <rect x="9" y="3" width="6" height="11" rx="3" />
-    <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" />
-  </svg>
-);
-
-export const PlayIcon = ({ size = 22 }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="shrink-0">
-    <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" fill="currentColor" />
-  </svg>
-);
-
-export const PauseIcon = ({ size = 22 }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="shrink-0">
-    <rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
-    <rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
-  </svg>
-);
-
-export const PeopleIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <circle cx="9" cy="8" r="3.5" />
-    <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M21.5 20a6.5 6.5 0 0 0-4-6" />
-  </svg>
-);
 
 export const CloseIcon = ({ size = 24 }: IconProps) => (
   <svg {...sized(size)}>
@@ -423,125 +458,7 @@ export const CloseIcon = ({ size = 24 }: IconProps) => (
   </svg>
 );
 
-export const WifiIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.7 16a5 5 0 0 1 6.6 0" />
-    <circle cx="12" cy="19" r=".9" fill="currentColor" />
-  </svg>
-);
-
-export const BackIcon = () => (
-  <svg {...sized(24)} strokeWidth={2}>
-    <path d="M19 12H5m6-6-6 6 6 6" />
-  </svg>
-);
-
-export const QrIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <rect x="4" y="4" width="6" height="6" rx="1" />
-    <rect x="14" y="4" width="6" height="6" rx="1" />
-    <rect x="4" y="14" width="6" height="6" rx="1" />
-    <path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2" />
-  </svg>
-);
-
-export const PlusIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)} strokeWidth={2}>
-    <path d="M12 5v14M5 12h14" />
-  </svg>
-);
-
-export const SendIcon = () => (
-  <svg width={22} height={22} viewBox="0 0 24 24" aria-hidden>
-    <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z" />
-  </svg>
-);
-
-export const FileIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <path d="M6.5 3h7l4 4v14h-11zM13.5 3v4h4" />
-  </svg>
-);
-
-export const ImageIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <rect x="3.5" y="5" width="17" height="14" rx="2" />
-    <path d="m4 17 5-5 4 4 2.5-2.5L20 17" />
-  </svg>
-);
-
-export const CameraIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <path d="M4 8h3.5L9 5.5h6L16.5 8H20v11H4z" />
-    <circle cx="12" cy="13" r="3.2" />
-  </svg>
-);
-
-export const FolderIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <path d="M3.5 6.5h6l2 2h9v10h-17z" />
-  </svg>
-);
-
-export const ChatsIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <path d="M12 3.5a8.5 8.5 0 0 0-7.3 12.8L3.5 20.5l4.3-1.1A8.5 8.5 0 1 0 12 3.5z" />
-  </svg>
-);
-
-export const DevicesIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <rect x="2.5" y="5" width="13" height="10" rx="1.5" />
-    <path d="M1.5 18h16" />
-    <rect x="16.5" y="8" width="6" height="11" rx="1.5" />
-  </svg>
-);
-
-export const SettingsIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <circle cx="12" cy="12" r="3" />
-    <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" />
-  </svg>
-);
-
-export const NewChatIcon = ({ size = 24 }: IconProps) => (
-  <svg {...sized(size)}>
-    <path d="M19.5 13v5.5a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2H11" />
-    <path d="M17 3.5 20.5 7 12 15.5H8.5V12z" />
-  </svg>
-);
-
-export const MenuIcon = () => (
-  <svg width={24} height={24} viewBox="0 0 24 24" aria-hidden>
-    <g fill="currentColor">
-      <circle cx="12" cy="5.5" r="1.8" />
-      <circle cx="12" cy="12" r="1.8" />
-      <circle cx="12" cy="18.5" r="1.8" />
-    </g>
-  </svg>
-);
-
-export const SearchIcon = ({ size = 20 }: IconProps) => (
-  <svg {...sized(size)} strokeWidth={2}>
-    <circle cx="11" cy="11" r="6.5" />
-    <path d="m16 16 4 4" />
-  </svg>
-);
-
-export const ChevronIcon = () => (
-  <svg {...sized(20)} strokeWidth={2.2}>
-    <path d="m6 9 6 6 6-6" />
-  </svg>
-);
-
 /** A solid padlock, like WhatsApp's: readable even at small sizes. */
-export const LockIcon = ({ size = 16 }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="shrink-0">
-    <path d="M8 10V7.5a4 4 0 0 1 8 0V10" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" />
-    <rect x="4.5" y="10" width="15" height="11" rx="2.5" fill="currentColor" />
-  </svg>
-);
-
 /** Message status after the time on your own messages. */
 export const TickIcon = () => (
   <svg width={16} height={11} viewBox="0 0 16 11" aria-hidden>
@@ -560,27 +477,6 @@ export const DoubleTickIcon = () => (
       strokeLinecap="round"
       strokeLinejoin="round"
     />
-  </svg>
-);
-
-export const InfoIcon = ({ size = 20 }: IconProps) => (
-  <svg {...sized(size)}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 11v5.5M12 7.6v.1" />
-  </svg>
-);
-
-export const ClockIcon = () => (
-  <svg {...sized(14)} strokeWidth={2}>
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="M12 7.5V12l3 2" />
-  </svg>
-);
-
-export const AlertIcon = () => (
-  <svg {...sized(14)} strokeWidth={2.2}>
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="M12 7.5v5M12 16v.5" />
   </svg>
 );
 
@@ -737,6 +633,6 @@ export function DropdownMenu({
   );
 }
 
-export const ICON_BUTTON = "flex size-10 shrink-0 items-center justify-center rounded-full text-muted hover:bg-hover";
+export const ICON_BUTTON = "flex size-10 shrink-0 items-center justify-center rounded-full text-muted transition-all hover:bg-hover active:scale-90";
 /** Header bars of the list and the chat share one height so their borders meet, like WhatsApp Web. */
 export const BAR = "flex h-16 shrink-0 items-center gap-2 bg-bar px-4 pt-[env(safe-area-inset-top)] box-content md:box-border md:pt-0";

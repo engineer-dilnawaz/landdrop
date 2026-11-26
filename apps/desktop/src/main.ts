@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { joinUrls } from "@landrop/lan-server/app";
 import { startHost } from "@landrop/lan-server/host";
 import { DEFAULT_LAN_PORT } from "@landrop/protocol";
-import { BrowserWindow, Menu, Tray, app, nativeImage, clipboard, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell, ShareMenu, type MenuItemConstructorOptions } from "electron";
+import { BrowserWindow, Menu, Notification, Tray, app, nativeImage, clipboard, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell, ShareMenu, type MenuItemConstructorOptions } from "electron";
 import QRCode from "qrcode";
+import { describeMessage, isNewer, releaseFrom, type Release } from "./notices";
 import { MAX_SCREENSHOTS, parseReport, saveReport } from "./reports";
 
 /**
@@ -28,13 +29,22 @@ const TRAY = MAC ? "menu bar" : "system tray";
 const REPO = "engineer-dilnawaz/landdrop";
 const WEBSITE = "https://landdrop.vercel.app";
 
+/** How often a running LANDrop looks for a newer release. */
+const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
+
 interface Settings {
   askedAboutLogin: boolean;
   keepAwake: boolean;
+  notifications: boolean;
+  /** Show the message itself in notifications, not just that one arrived. */
+  previews: boolean;
+  /** The newest release the user was already told about, so each one is announced once. */
+  announcedVersion?: string;
 }
 
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
-let settings: Settings = { askedAboutLogin: false, keepAwake: false };
+let settings: Settings = { askedAboutLogin: false, keepAwake: false, notifications: true, previews: true };
+let availableUpdate: Release | undefined;
 let tray: Tray | undefined;
 let qrWindow: BrowserWindow | undefined;
 let chatWindow: BrowserWindow | undefined;
@@ -44,6 +54,9 @@ let awakeBlocker: number | undefined;
 // Settings and the chat window's storage live in "Application Support/LANDrop", not under the package's name.
 // A development build gets its own, so it doesn't share settings or the single-instance lock with the installed app.
 app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? "LANDrop" : "LANDrop Dev"));
+
+// Windows shows toasts under this name; without it they appear as "electron.app.LANDrop".
+if (process.platform === "win32") app.setAppUserModelId("app.landrop.desktop");
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -68,6 +81,7 @@ async function start() {
       dataDir: DATA_DIR,
       port: PORT,
       webDir: existsSync(join(WEB_DIR, "index.html")) ? WEB_DIR : undefined,
+      onMessage: notifyMessage,
     });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") return fail(err);
@@ -100,6 +114,16 @@ async function start() {
     });
     return true;
   });
+  // Only the chat window's settings page may read or change these.
+  const notificationSettings = () => ({ notifications: settings.notifications, previews: settings.previews });
+  ipcMain.handle("notifications:get", (event) => (event.sender === chatWindow?.webContents ? notificationSettings() : undefined));
+  ipcMain.handle("notifications:set", (event, change: { notifications?: unknown; previews?: unknown }) => {
+    if (event.sender !== chatWindow?.webContents) return undefined;
+    if (typeof change?.notifications === "boolean") settings.notifications = change.notifications;
+    if (typeof change?.previews === "boolean") settings.previews = change.previews;
+    saveSettings();
+    return notificationSettings();
+  });
   ipcMain.handle("qr:save", async (event) => {
     if (!qrWindow || event.sender !== qrWindow.webContents || !joinUrls(PORT)[0]) return;
     const { filePath } = await dialog.showSaveDialog(qrWindow, {
@@ -130,6 +154,9 @@ async function start() {
   powerMonitor.on("on-battery", updateKeepAwake);
   updateKeepAwake();
 
+  void checkForUpdates({ quiet: true });
+  setInterval(() => void checkForUpdates({ quiet: true }), UPDATE_CHECK_MS).unref();
+
   if (app.isPackaged && !settings.askedAboutLogin) await askAboutLogin();
   // Started by the Mac at login: stay quietly in the menu bar or tray.
   if (!app.getLoginItemSettings().wasOpenedAtLogin) await showQr();
@@ -146,6 +173,9 @@ function menu(): Menu {
     { type: "separator" },
     ...optionItems(),
     { type: "separator" },
+    ...(availableUpdate
+      ? [{ label: `Update Available: LANDrop ${availableUpdate.version}…`, click: () => void showUpdate(availableUpdate!) } satisfies MenuItemConstructorOptions]
+      : []),
     { label: "About LANDrop", click: () => app.showAboutPanel() },
     { label: "Check for Updates…", click: () => void checkForUpdates() },
     { type: "separator" },
@@ -175,6 +205,25 @@ function optionItems(): MenuItemConstructorOptions[] {
       // Only the installed app can be a login item; a development build would register Electron itself.
       enabled: app.isPackaged,
       click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }),
+    },
+    {
+      label: "Notify Me About New Messages",
+      type: "checkbox",
+      checked: settings.notifications,
+      click: (item) => {
+        settings.notifications = item.checked;
+        saveSettings();
+      },
+    },
+    {
+      label: "Show Message Text in Notifications",
+      type: "checkbox",
+      checked: settings.previews,
+      enabled: settings.notifications,
+      click: (item) => {
+        settings.previews = item.checked;
+        saveSettings();
+      },
     },
     {
       label: `Keep ${COMPUTER === "Mac" ? "Mac" : "Computer"} Awake While Plugged In`,
@@ -242,17 +291,30 @@ function trackWindow(window: BrowserWindow) {
   });
 }
 
-/** Asks GitHub for the latest release, only when the user chooses to; LANDrop itself never needs the internet. */
-async function checkForUpdates() {
-  let latest: { tag_name: string; html_url: string };
+/** Tells the user a message arrived, unless they're already looking at LANDrop. */
+function notifyMessage(event: Parameters<typeof describeMessage>[0]) {
+  if (!settings.notifications || !Notification.isSupported() || chatWindow?.isFocused()) return;
+  const { title, body } = describeMessage(event, settings.previews);
+  const notification = new Notification({ title, body });
+  notification.on("click", openChat);
+  notification.show();
+}
+
+/**
+ * Asks GitHub for the latest release. A manual check always answers; the background one stays quiet
+ * unless there is something new it hasn't announced yet. LANDrop itself never needs the internet.
+ */
+async function checkForUpdates({ quiet = false } = {}) {
+  let latest: Release;
   try {
     const response = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
       headers: { Accept: "application/vnd.github+json" },
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
-    latest = (await response.json()) as typeof latest;
+    latest = releaseFrom((await response.json()) as Parameters<typeof releaseFrom>[0]);
   } catch {
+    if (quiet) return;
     await dialog.showMessageBox({
       type: "warning",
       message: "Couldn't check for updates",
@@ -260,29 +322,39 @@ async function checkForUpdates() {
     });
     return;
   }
-  const version = latest.tag_name.replace(/^v/, "");
-  if (!isNewer(version, app.getVersion())) {
-    await dialog.showMessageBox({ message: "LANDrop is up to date", detail: `You have the latest version, ${app.getVersion()}.` });
+  if (!isNewer(latest.version, app.getVersion())) {
+    availableUpdate = undefined;
+    if (!quiet) await dialog.showMessageBox({ message: "LANDrop is up to date", detail: `You have the latest version, ${app.getVersion()}.` });
     return;
   }
+  availableUpdate = latest;
+  if (!quiet) return showUpdate(latest);
+  if (settings.announcedVersion === latest.version) return;
+  settings.announcedVersion = latest.version;
+  saveSettings();
+  if (!Notification.isSupported()) return void showUpdate(latest);
+  const notification = new Notification({ title: `LANDrop ${latest.version} is available`, body: "Click to see what's new." });
+  notification.on("click", () => void showUpdate(latest));
+  notification.show();
+}
+
+/** Shows what's new in a release and offers the installer for this computer. */
+async function showUpdate(release: Release) {
   const { response } = await dialog.showMessageBox({
-    message: `LANDrop ${version} is available`,
-    detail: `You have ${app.getVersion()}. Download the new version, quit LANDrop, then drag the new LANDrop into Applications.`,
+    message: `LANDrop ${release.version} is available`,
+    detail: [
+      `You have ${app.getVersion()}.`,
+      ...(release.highlights.length ? ["", "What's new:", ...release.highlights.map((line) => `•  ${line}`)] : []),
+      "",
+      process.platform === "darwin"
+        ? "Download it, quit LANDrop, then drag the new LANDrop into Applications."
+        : "Download it, then run the installer. It replaces this version.",
+    ].join("\n"),
     buttons: ["Download", "Later"],
     defaultId: 0,
     cancelId: 1,
   });
-  if (response === 0) void shell.openExternal(latest.html_url);
-}
-
-/** Compares dotted version numbers, like 0.1.10 and 0.1.9. */
-function isNewer(candidate: string, current: string): boolean {
-  const a = candidate.split(".").map(Number);
-  const b = current.split(".").map(Number);
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
-  }
-  return false;
+  if (response === 0) void shell.openExternal(release.installerUrl ?? release.url);
 }
 
 async function askAboutLogin() {
@@ -345,7 +417,7 @@ function openChat() {
     app.focus({ steal: true });
     return;
   }
-  chatWindow = new BrowserWindow({ width: 1100, height: 760, title: "LANDrop" });
+  chatWindow = new BrowserWindow({ width: 1100, height: 760, title: "LANDrop", webPreferences: { preload: join(__dirname, "preload.cjs") } });
   chatWindow.on("closed", () => (chatWindow = undefined));
   trackWindow(chatWindow);
   // Links to other sites open in the browser, not inside LANDrop.

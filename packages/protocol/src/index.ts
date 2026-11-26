@@ -231,6 +231,9 @@ export const CreateMessageRequestSchema = z.union([
 ]);
 export type CreateMessageRequest = z.input<typeof CreateMessageRequestSchema>;
 
+/** Sends a copy of a message you can see to another chat. */
+export const ForwardMessageRequestSchema = z.object({ messageId: z.string().uuid(), chatId: ChatIdSchema });
+
 export const SubmitChecksumRequestSchema = z.object({
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
 });
@@ -344,6 +347,8 @@ export const routes = {
   /** GET → MessageInfo. */
   messageInfo: (id: string) => `${API_PREFIX}/messages/${id}/info`,
   message: (id: string) => `${API_PREFIX}/messages/${id}`,
+  /** POST ForwardMessageRequest → the new Message. */
+  forward: `${API_PREFIX}/messages/forward`,
   attachmentData: (id: string) => `${API_PREFIX}/messages/${id}/attachment/data`,
   attachmentChecksum: (id: string) => `${API_PREFIX}/messages/${id}/attachment/checksum`,
   attachment: (id: string) => `${API_PREFIX}/messages/${id}/attachment`,

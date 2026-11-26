@@ -10,6 +10,7 @@ import {
   PeopleIcon,
   QrIcon,
   SearchIcon,
+  PinIcon,
   TickIcon,
   WifiIcon,
   colourFor,
@@ -28,6 +29,8 @@ export interface ChatSummary {
   preview?: string;
   lastAt?: number;
   unread: number;
+  /** Pinned to the top of the list on this device. */
+  pinned?: boolean;
 }
 
 /** WhatsApp's filter chips. */
@@ -90,15 +93,27 @@ export function ChatList({
       </header>
 
       {connection !== "online" && (
-        <p
+        <div
           role="status"
-          className={`mx-3 mb-2 flex items-center gap-3 rounded-lg px-4 py-3 text-[14px] ${
-            connection === "offline" ? "bg-banner text-banner-ink" : "text-muted"
+          className={`page-in mx-3 mb-3 flex items-center gap-3 rounded-xl border p-3 ${
+            connection === "offline" ? "border-amber-500/30 bg-amber-500/10" : "border-divider bg-field"
           }`}
         >
-          <WifiIcon size={20} />
-          {connection === "offline" ? "Can't reach the LANDrop host. Retrying…" : "Connecting…"}
-        </p>
+          <span
+            className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${
+              connection === "offline" ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" : "bg-panel text-muted"
+            }`}
+          >
+            <WifiIcon size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px] font-medium leading-5">{connection === "offline" ? "Can't reach the LANDrop host" : "Connecting…"}</p>
+            <p className="flex items-center gap-1.5 text-[13px] leading-5 text-muted">
+              <span aria-hidden className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none" />
+              {connection === "offline" ? "Trying again automatically" : "Finding the host on this Wi-Fi"}
+            </p>
+          </div>
+        </div>
       )}
 
       <label className="mx-3 flex h-9 shrink-0 items-center gap-5 rounded-lg bg-field px-3 text-muted">
@@ -155,7 +170,16 @@ export function ChatList({
                   <p className="flex min-w-0 items-center gap-1 text-[14px] text-muted">
                     <Preview text={chat.preview} />
                   </p>
-                  {chat.unread > 0 && <UnreadBadge count={chat.unread} />}
+                  {(chat.pinned || chat.unread > 0) && (
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {chat.pinned && (
+                        <span className="text-muted" title="Pinned" aria-label="Pinned">
+                          <PinIcon size={16} />
+                        </span>
+                      )}
+                      {chat.unread > 0 && <UnreadBadge count={chat.unread} />}
+                    </span>
+                  )}
                 </div>
               </div>
             </button>

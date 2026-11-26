@@ -4,10 +4,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { MAX_ATTACHMENT_BYTES, type Message } from "@landrop/protocol";
 import { Bubble, TIME_GAP_MS } from "./bubble";
 import { ChatAvatar, type ChatKind } from "./chat-list";
-import { ExpressionPanel } from "./expressions";
 import { FolderArchive } from "./folder";
 import type { Receipt } from "./receipts";
-import { RecorderFallback, RecordingBar, canRecordHere, useVoiceRecorder } from "./voice";
+import { SelectionBar } from "./selection";
 import type { Progress, ReadingFolder } from "./landrop";
 import {
   Avatar,
@@ -20,14 +19,14 @@ import {
   ICON_BUTTON,
   ImageIcon,
   LockIcon,
-  MicIcon,
+  PinIcon,
   PlusIcon,
   QrIcon,
   FILLED_BUTTON,
   SHEET_ITEM,
+  TickIcon,
   SendIcon,
   Sheet,
-  SmileyIcon,
   colourFor,
   formatBytes,
   formatDay,
@@ -71,6 +70,10 @@ export function ChatView({
   receiptOf,
   onReply,
   onLongPress,
+  selection,
+  pinned,
+  chatPinned,
+  onTogglePinChat,
 }: {
   chat: OpenChat;
   messages: Message[];
@@ -113,37 +116,34 @@ export function ChatView({
   receiptOf: (message: Message) => Receipt;
   onReply: (message: Message) => void;
   onLongPress: (message: Message) => void;
+  /** The chat's pinned message, shown as a banner under the header. */
+  pinned?: { id: string; sender: string; preview: string; onUnpin: () => void };
+  /** This chat is pinned to the top of the list. */
+  chatPinned: boolean;
+  onTogglePinChat: () => void;
+  /** Set while several messages are being picked: which are, and what can be done with them. */
+  selection?: {
+    ids: ReadonlySet<string>;
+    canCopy: boolean;
+    canDownload: boolean;
+    canForward: boolean;
+    canDelete: boolean;
+    onToggle: (message: Message) => void;
+    onCopy: () => void;
+    onDownload: () => void;
+    onForward: () => void;
+    onDelete: () => void;
+    onCancel: () => void;
+  };
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const recorder = useVoiceRecorder(composer.notice);
-  // Only rendered once connected, never on the server, so reading the browser here is safe.
-  const canRecord = canRecordHere();
   const scrollerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   /** Whether the view stays at the newest message as the chat grows: until the user scrolls up. */
   const atBottomRef = useRef(true);
   const { text, files, replyTo } = composer;
-  /** The chat the emoji and GIF panel is open in; switching chats leaves it closed. */
-  const [expressionsChat, setExpressionsChat] = useState<string>();
-  const expressions = expressionsChat === chat.id;
-  const setExpressions = (open: boolean) => setExpressionsChat(open ? chat.id : undefined);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
-  /** Where emoji go: the cursor's last place in the message, kept while the panel has focus. */
-  const caretRef = useRef<{ chatId: string; start: number; end: number }>(undefined);
   const touch = () => matchMedia("(pointer: coarse)").matches;
-
-  function insertEmoji(emoji: string) {
-    const caret = caretRef.current?.chatId === chat.id ? caretRef.current : undefined;
-    const { start, end } = caret ?? { start: text.length, end: text.length };
-    composer.setText(text.slice(0, start) + emoji + text.slice(end));
-    caretRef.current = { chatId: chat.id, start: start + emoji.length, end: start + emoji.length };
-    // On computers the cursor goes back into the field after the emoji; phones keep the keyboard down.
-    if (!touch())
-      requestAnimationFrame(() => {
-        fieldRef.current?.focus();
-        fieldRef.current?.setSelectionRange(start + emoji.length, start + emoji.length);
-      });
-  }
 
   // Open at the newest message, and follow new ones as they arrive, like a chat app.
   useLayoutEffect(() => {
@@ -188,6 +188,20 @@ export function ChatView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" onPaste={attachPasted}>
+      {selection ? (
+        <SelectionBar
+          count={selection.ids.size}
+          canCopy={selection.canCopy}
+          canDownload={selection.canDownload}
+          canForward={selection.canForward}
+          canDelete={selection.canDelete}
+          onCopy={selection.onCopy}
+          onDownload={selection.onDownload}
+          onForward={selection.onForward}
+          onDelete={selection.onDelete}
+          onCancel={selection.onCancel}
+        />
+      ) : (
       <header className="z-10 flex h-16 shrink-0 items-center gap-1 bg-bar px-2 pt-[env(safe-area-inset-top)] box-content md:box-border md:gap-3 md:px-4 md:pt-0">
         <button onClick={onBack} className={`${ICON_BUTTON} text-foreground md:hidden`} aria-label="Back to chats">
           <BackIcon />
@@ -215,24 +229,56 @@ export function ChatView({
           items={[
             ...(chat.kind === "everyone" ? [{ label: "Invite devices", onSelect: onInvite }] : []),
             ...(chat.kind === "group" ? [{ label: "Group info", onSelect: onGroupInfo }] : []),
+            { label: chatPinned ? "Unpin chat" : "Pin chat to top", onSelect: onTogglePinChat },
             { label: "Close chat", onSelect: onBack },
             { label: chat.kind === "private" ? "Delete chat" : "Clear chat", onSelect: onClearChat, danger: true },
             ...(chat.kind === "group" ? [{ label: "Leave group", onSelect: onLeaveGroup, danger: true }] : []),
           ]}
         />
       </header>
+      )}
+
+      {pinned && !selection && (
+        <div className="page-in z-10 flex shrink-0 items-center gap-1 border-b border-divider bg-bar px-3 py-1.5">
+          <button
+            onClick={() => showMessage(pinned.id)}
+            aria-label="Go to the pinned message"
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-hover"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+              <PinIcon size={16} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium leading-4 text-accent">Pinned · {pinned.sender}</span>
+              <span className="block truncate text-[13px] leading-[18px] text-muted">{pinned.preview}</span>
+            </span>
+          </button>
+          <button onClick={pinned.onUnpin} aria-label="Unpin message" title="Unpin" className={`${ICON_BUTTON} !size-8`}>
+            <CloseIcon size={16} />
+          </button>
+        </div>
+      )}
 
       <div className="wallpaper flex min-h-0 flex-1 flex-col">
         <main ref={scrollerRef} className="flex-1 overflow-y-auto px-3 pb-2 pt-2 md:px-[7%]" aria-live="polite">
           <div ref={contentRef} className="mx-auto flex max-w-4xl flex-col">
-            <p className="mx-auto mb-2 mt-2 flex max-w-md items-center gap-1.5 rounded-lg bg-[#ffeecd] px-3 py-1.5 text-center text-[12.5px] text-[#54656f] shadow-[0_1px_.5px_rgba(11,20,26,.13)] dark:bg-[#182229] dark:text-[#ffd279]">
-              <LockIcon />
-              {chat.kind === "everyone"
-                ? "Messages here go to everyone on this Wi-Fi who opens LANDrop. Nothing goes to the internet."
-                : chat.kind === "group"
-                  ? "Only the devices in this group see its messages and files. They stay on this Wi-Fi."
-                  : `Messages here are only between you and ${chat.title}, and stay on this Wi-Fi.`}
-            </p>
+            <div className="page-in mx-auto mb-3 mt-2 flex w-full max-w-md items-start gap-3 rounded-xl border border-divider bg-panel/85 p-3 shadow-sm backdrop-blur">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                <LockIcon />
+              </span>
+              <div className="min-w-0 text-left">
+                <p className="text-[13px] font-medium leading-5">
+                  {chat.kind === "everyone" ? "Open to everyone here" : chat.kind === "group" ? "Just this group" : "Just the two of you"}
+                </p>
+                <p className="text-[12.5px] leading-[18px] text-muted">
+                  {chat.kind === "everyone"
+                    ? "Messages here go to everyone on this Wi-Fi who opens LANDrop. Nothing goes to the internet."
+                    : chat.kind === "group"
+                      ? "Only the devices in this group see its messages and files. They stay on this Wi-Fi."
+                      : `Messages here are only between you and ${chat.title}, and stay on this Wi-Fi.`}
+                </p>
+              </div>
+            </div>
             {messages.map((m, i) => {
               const prev = messages[i - 1];
               const newDay = !prev || new Date(prev.createdAt).toDateString() !== new Date(m.createdAt).toDateString();
@@ -240,19 +286,38 @@ export function ChatView({
               const own = m.senderId === selfId;
               const { download, preview } = urls(m.id);
               return (
-                <div key={m.id} className={startsRun ? "mt-3" : "mt-0.5"}>
+                <div key={m.id} className={`${startsRun ? "mt-3" : "mt-0.5"} ${i >= messages.length - 6 ? "message-in" : ""}`}>
                   {newDay && (
-                    <p className="mx-auto mb-3 mt-1 w-fit rounded-lg bg-panel px-3 py-1.5 text-center text-[12.5px] text-muted uppercase shadow-[0_1px_.5px_rgba(11,20,26,.13)]">
+                    <p className="mx-auto mb-3 mt-1 w-fit rounded-full border border-divider bg-panel/85 px-3 py-1 text-center text-[11px] font-medium tracking-wider text-muted uppercase shadow-sm backdrop-blur">
                       {formatDay(m.createdAt)}
                     </p>
+                  )}
+                  <div className={`relative rounded-lg transition-colors ${selection ? "cursor-pointer pl-8" : ""} ${selection?.ids.has(m.id) ? "bg-accent/15" : ""}`}>
+                  {selection && (
+                    <>
+                      <span
+                        aria-hidden
+                        className={`absolute left-1.5 top-1/2 z-10 flex size-5 -translate-y-1/2 items-center justify-center rounded-full border-2 ${
+                          selection.ids.has(m.id) ? "border-accent bg-accent text-white" : "border-muted"
+                        }`}
+                      >
+                        {selection.ids.has(m.id) && <TickIcon />}
+                      </span>
+                      <button
+                        onClick={() => selection.onToggle(m)}
+                        aria-pressed={selection.ids.has(m.id)}
+                        aria-label={`Select message from ${nameOf(m.senderId, m.senderName)}`}
+                        className="absolute inset-0 z-20"
+                      />
+                    </>
                   )}
                   <Bubble
                     message={m}
                     nameOf={nameOf}
                     own={own}
                     showSender={chat.kind !== "private" && !own && startsRun}
-                    first={startsRun}
                     progress={progress[m.id]}
+                    pinned={pinned?.id === m.id}
                     downloadUrl={download}
                     previewUrl={preview}
                     onOpenMedia={() => onOpenMedia(m)}
@@ -286,6 +351,7 @@ export function ChatView({
                       )
                     }
                   />
+                  </div>
                 </div>
               );
             })}
@@ -362,55 +428,15 @@ export function ChatView({
               ))}
             </ul>
           )}
-          {expressions && !recorder.active && (
-            <ExpressionPanel
-              onEmoji={insertEmoji}
-              onGif={(gif) => {
-                setExpressions(false);
-                composer.send([gif]);
-              }}
-              onError={composer.notice}
-            />
-          )}
           <div className="flex items-end gap-1.5">
-            {recorder.active ? (
-              <RecordingBar
-                seconds={recorder.seconds}
-                onCancel={recorder.cancel}
-                onSend={async () => {
-                  const voice = await recorder.stop();
-                  if (voice) composer.send([voice]);
-                }}
-              />
-            ) : (
-              <>
                 <AttachMenu onFiles={composer.chooseFiles} onFolder={composer.pickFolder} onDropFolder={composer.dropFolder} />
-                <div className="flex min-h-[42px] flex-1 items-end rounded-lg bg-panel pr-3 pl-1 md:bg-field dark:bg-field">
-                  <button
-                    onClick={() => {
-                      // On phones the panel takes the keyboard's place, like WhatsApp.
-                      if (!expressions && touch()) fieldRef.current?.blur();
-                      setExpressions(!expressions);
-                    }}
-                    aria-label={expressions ? "Close emoji and GIFs" : "Emoji and GIFs"}
-                    aria-expanded={expressions}
-                    title="Emoji and GIFs"
-                    className={`flex size-[42px] shrink-0 items-center justify-center rounded-full ${expressions ? "text-accent" : "text-muted hover:text-foreground"}`}
-                  >
-                    <SmileyIcon />
-                  </button>
+                <div className="flex min-h-[42px] flex-1 items-end rounded-lg bg-panel px-3 md:bg-field dark:bg-field">
                   <textarea
                     ref={fieldRef}
                     value={text}
                     onChange={(e) => composer.setText(e.target.value)}
-                    onSelect={(e) => {
-                      caretRef.current = { chatId: chat.id, start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd };
-                    }}
-                    // Typing on a phone brings the keyboard back in place of the panel.
-                    onFocus={() => touch() && setExpressions(false)}
                     onKeyDown={(e) => {
                       // On phones Return adds a line, like WhatsApp; on computers Enter sends.
-                      if (e.key === "Escape" && expressions) setExpressions(false);
                       if (e.key === "Enter" && !e.shiftKey && !touch()) {
                         e.preventDefault();
                         composer.send();
@@ -422,29 +448,14 @@ export function ChatView({
                     className="max-h-36 min-h-[42px] flex-1 resize-none bg-transparent py-[11px] text-[15px] leading-5 outline-none placeholder:text-muted select-text [-webkit-user-select:text] [field-sizing:content]"
                   />
                 </div>
-                {/* Like WhatsApp: send once there's something to send, otherwise the voice message mic. */}
-                {text.trim() || files.length ? (
-                  <button
-                    onClick={() => composer.send()}
-                    aria-label="Send"
-                    className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-accent text-white"
-                  >
-                    <SendIcon />
-                  </button>
-                ) : canRecord ? (
-                  <button
-                    onClick={() => void recorder.start()}
-                    aria-label="Record a voice message"
-                    title="Record a voice message"
-                    className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-accent text-white"
-                  >
-                    <MicIcon />
-                  </button>
-                ) : (
-                  <RecorderFallback onFile={(file) => composer.send([file])} />
-                )}
-              </>
-            )}
+                <button
+                  onClick={() => composer.send()}
+                  disabled={!text.trim() && !files.length}
+                  aria-label="Send"
+                  className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-accent text-white disabled:opacity-40"
+                >
+                  <SendIcon />
+                </button>
           </div>
         </div>
       </footer>
@@ -461,9 +472,10 @@ const inMacApp = () => typeof navigator !== "undefined" && /Electron\//.test(nav
 type FolderHandler = (list: FileList) => void;
 
 /** A file input that picks a whole folder, each file with its path inside it. */
-function FolderInput({ onFolder }: { onFolder: FolderHandler }) {
+function FolderInput({ onFolder, inputRef }: { onFolder: FolderHandler; inputRef?: React.Ref<HTMLInputElement> }) {
   return (
     <input
+      ref={inputRef}
       type="file"
       className="hidden"
       // Not in React's types.
@@ -543,7 +555,11 @@ function FolderSheet({
   );
 }
 
-/** WhatsApp's "+" button: a sheet of things to attach. Each opens the file picker for its kind. */
+/**
+ * WhatsApp's "+" button: a sheet of things to attach. Choosing one closes the sheet at once and opens
+ * the file picker for its kind. The pickers stay mounted outside the sheet, so a phone's picker or
+ * camera can finish and deliver the files after the sheet is gone.
+ */
 function AttachMenu({
   onFiles,
   onFolder,
@@ -555,17 +571,23 @@ function AttachMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [folderSheet, setFolderSheet] = useState(false);
-  const pick = (input: HTMLInputElement) => {
-    onFiles([...(input.files ?? [])]);
-    input.value = "";
+  const documentRef = useRef<HTMLInputElement>(null);
+  const mediaRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
+  const choose = (input: React.RefObject<HTMLInputElement | null>) => {
     setOpen(false);
+    input.current?.click();
   };
-  const picker = (label: string, icon: ReactNode, colour: string, attrs: React.InputHTMLAttributes<HTMLInputElement>, extra = "") => (
-    <label className={`${SHEET_ITEM} cursor-pointer ${extra}`}>
+  const received = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onFiles([...(e.target.files ?? [])]);
+    e.target.value = "";
+  };
+  const item = (label: string, icon: ReactNode, colour: string, input: React.RefObject<HTMLInputElement | null>, extra = "") => (
+    <button onClick={() => choose(input)} className={`${SHEET_ITEM} ${extra}`}>
       <span style={{ color: colour }}>{icon}</span>
       {label}
-      <input type="file" multiple className="hidden" onChange={(e) => pick(e.target)} {...attrs} />
-    </label>
+    </button>
   );
   const folderIcon = (
     <span className="text-[#ffbc38]">
@@ -574,6 +596,10 @@ function AttachMenu({
   );
   return (
     <>
+      <input ref={documentRef} type="file" multiple className="hidden" onChange={received} />
+      <input ref={mediaRef} type="file" multiple accept="image/*,video/*" className="hidden" onChange={received} />
+      <input ref={cameraRef} type="file" accept="image/*,video/*" capture="environment" className="hidden" onChange={received} />
+      <FolderInput inputRef={folderRef} onFolder={onFolder} />
       <button
         onClick={() => setOpen(true)}
         aria-label="Attach"
@@ -586,32 +612,22 @@ function AttachMenu({
       </button>
       {open && (
         <Sheet label="Attach" onClose={() => setOpen(false)}>
-          {picker("Document", <FileIcon />, "#7f66ff", {})}
-          {picker("Photos & videos", <ImageIcon />, "#007bfc", { accept: "image/*,video/*" })}
-          {picker("Camera", <CameraIcon />, "#ff2e74", { accept: "image/*,video/*", capture: "environment", multiple: false }, "md:hidden")}
+          {item("Document", <FileIcon />, "#7f66ff", documentRef)}
+          {item("Photos & videos", <ImageIcon />, "#007bfc", mediaRef)}
+          {item("Camera", <CameraIcon />, "#ff2e74", cameraRef, "md:hidden")}
           {!canPickFolders() ? (
             <div className={`${SHEET_ITEM} cursor-default opacity-50 hover:bg-transparent`} aria-disabled="true">
               {folderIcon}
               Folder
               <span className="ml-auto text-[12px] text-muted">Not on iPhone or iPad</span>
             </div>
-          ) : inMacApp() ? (
-            <label className={`${SHEET_ITEM} cursor-pointer`}>
-              {folderIcon}
-              Folder
-              <FolderInput
-                onFolder={(folder) => {
-                  onFolder(folder);
-                  setOpen(false);
-                }}
-              />
-            </label>
           ) : (
             <button
               className={SHEET_ITEM}
               onClick={() => {
                 setOpen(false);
-                setFolderSheet(true);
+                if (inMacApp()) folderRef.current?.click();
+                else setFolderSheet(true);
               }}
             >
               {folderIcon}

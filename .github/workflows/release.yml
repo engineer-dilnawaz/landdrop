@@ -51,10 +51,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
       - uses: actions/download-artifact@v4
         with:
           pattern: installers-*
           merge-multiple: true
-      - run: gh release create "v$VERSION" LANDrop-*.dmg LANDrop-*.exe --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "LANDrop $VERSION" --generate-notes
+      # The notes are the commit messages since the last release, one bullet each; the app shows them
+      # as "What's new" when it tells people an update is available.
+      - run: |
+          previous=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          git log ${previous:+$previous..}HEAD --no-merges --pretty='- %s' > notes.md
+          gh release create "v$VERSION" LANDrop-*.dmg LANDrop-*.exe --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "LANDrop $VERSION" --notes-file notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -23,10 +23,10 @@ export function Rail({ panel, unread, selfName, selfId, onPanel, onInvite }: Nav
       className="hidden w-16 shrink-0 flex-col items-center gap-1 border-r border-divider bg-bar py-3 md:flex"
     >
       <RailButton label="Chats" active={panel === "chats"} onClick={() => onPanel("chats")} badge={unread}>
-        <ChatsIcon />
+        <ChatsIcon bold={panel === "chats"} />
       </RailButton>
       <RailButton label="Devices" active={panel === "devices"} onClick={() => onPanel("devices")}>
-        <DevicesIcon />
+        <DevicesIcon bold={panel === "devices"} />
       </RailButton>
       <RailButton label="Add a device: show QR code" onClick={onInvite}>
         <QrIcon />
@@ -81,10 +81,10 @@ function RailButton({
 
 /** WhatsApp's bottom tab bar on phones. */
 export function BottomTabs({ panel, unread, onPanel }: Pick<NavProps, "panel" | "unread" | "onPanel">) {
-  const tabs: { id: Panel; label: string; icon: ReactNode }[] = [
-    { id: "chats", label: "Chats", icon: <ChatsIcon /> },
-    { id: "devices", label: "Devices", icon: <DevicesIcon /> },
-    { id: "settings", label: "Settings", icon: <SettingsIcon /> },
+  const tabs: { id: Panel; label: string; icon: (bold: boolean) => ReactNode }[] = [
+    { id: "chats", label: "Chats", icon: (bold) => <ChatsIcon bold={bold} /> },
+    { id: "devices", label: "Devices", icon: (bold) => <DevicesIcon bold={bold} /> },
+    { id: "settings", label: "Settings", icon: (bold) => <SettingsIcon bold={bold} /> },
   ];
   return (
     <nav
@@ -103,7 +103,7 @@ export function BottomTabs({ panel, unread, onPanel }: Pick<NavProps, "panel" | 
               panel === t.id ? "bg-chip-on text-chip-on-ink" : "text-muted"
             }`}
           >
-            {t.icon}
+            {t.icon(panel === t.id)}
             {t.id === "chats" && unread > 0 && (
               <span className="absolute -top-1 right-2 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
                 {unread > 99 ? "99+" : unread}

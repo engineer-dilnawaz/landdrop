@@ -3,53 +3,52 @@
 /* Dark mode is a class on <html> (see layout.tsx), so Settings can override the device's choice. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* WhatsApp-style palette. System fonts only: the app must work with no internet connection. */
+/* A neutral zinc palette in the ShadCN style: hairline borders, soft surfaces, one accent. System fonts only: the app must work with no internet connection. */
 :root {
-  --app: #d1d7db;
+  --app: #f4f4f5;
   --panel: #ffffff;
-  --bar: #f0f2f5;
-  --hover: #f5f6f6;
-  --field: #f0f2f5;
-  --foreground: #111b21;
-  --muted: #667781;
-  --divider: #e9edef;
-  --wall: #efeae2;
-  --doodle: #ddd5c8;
+  --bar: #ffffff;
+  --hover: #f4f4f5;
+  --field: #f4f4f5;
+  --foreground: #09090b;
+  --muted: #71717a;
+  --divider: #e4e4e7;
+  --wall: #fafafa;
+  --doodle: #e4e4e7;
   --bubble-in: #ffffff;
-  --tick: #53bdeb;
-  --danger: #ea0038;
-  --banner: #fff4c2;
-  --banner-ink: #54460a;
-  /* Accent: WhatsApp green unless another chat colour is picked in Settings. */
-  --accent: #00a884;
-  --bubble-out: #d9fdd3;
-  --bubble-out-ink: #111b21;
-  --chip-on: #e7fce3;
-  --chip-on-ink: #008069;
+  --tick: #0ea5e9;
+  --danger: #dc2626;
+  --banner: #fef9c3;
+  --banner-ink: #713f12;
+  /* Accent: emerald unless another chat colour is picked in Settings. */
+  --accent: #059669;
+  --bubble-out: #d1fae5;
+  --bubble-out-ink: #09090b;
+  --chip-on: #d1fae5;
+  --chip-on-ink: #047857;
   color-scheme: light;
 }
 
-
 :root.dark {
   color-scheme: dark;
-  --app: #0b141a;
-  --panel: #111b21;
-  --bar: #202c33;
-  --hover: #202c33;
-  --field: #2a3942;
-  --foreground: #e9edef;
-  --muted: #8696a0;
-  --divider: #222d34;
-  --wall: #0b141a;
-  --doodle: #1c272e;
-  --bubble-in: #202c33;
-  --danger: #f15c6d;
-  --banner: #3b3412;
-  --banner-ink: #f5e7a3;
-  --bubble-out: #005c4b;
-  --bubble-out-ink: #e9edef;
-  --chip-on: #103529;
-  --chip-on-ink: #00a884;
+  --app: #050506;
+  --panel: #09090b;
+  --bar: #0c0c0e;
+  --hover: #18181b;
+  --field: #18181b;
+  --foreground: #fafafa;
+  --muted: #a1a1aa;
+  --divider: #27272a;
+  --wall: #000000;
+  --doodle: #1f1f23;
+  --bubble-in: #18181b;
+  --danger: #f87171;
+  --banner: #422006;
+  --banner-ink: #fde68a;
+  --bubble-out: #065f46;
+  --bubble-out-ink: #ecfdf5;
+  --chip-on: #064e3b;
+  --chip-on-ink: #6ee7b7;
 }
 /* Chat colours chosen in Settings (green is the default above). */
 :root[data-accent="blue"] {
@@ -137,27 +136,21 @@
   --chip-on-ink: #c2cdd3;
 }
 
-/* Message text size and bubble shape, from Settings. */
+/* Message text size, from Settings. Bubbles keep one shape. */
 :root {
   --chat-text: 14.5px;
-  --chat-leading: 19px;
-  --bubble-radius: 7.5px;
+  --chat-leading: 20px;
+  --bubble-radius: 14px;
   /* Photos inside a bubble sit 3px in, so their corners follow the bubble's. */
-  --media-radius: max(0px, calc(var(--bubble-radius) - 2.5px));
+  --media-radius: max(0px, calc(var(--bubble-radius) - 3px));
 }
 :root[data-text="small"] {
   --chat-text: 13px;
-  --chat-leading: 17px;
+  --chat-leading: 18px;
 }
 :root[data-text="large"] {
   --chat-text: 17px;
-  --chat-leading: 22px;
-}
-:root[data-shape="round"] {
-  --bubble-radius: 18px;
-}
-:root[data-shape="sharp"] {
-  --bubble-radius: 2px;
+  --chat-leading: 23px;
 }
 
 @theme inline {
@@ -185,15 +178,27 @@
 body {
   background: var(--app);
   color: var(--foreground);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  font-family: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
 }
 
-/* The chat background: our own doodles, tinted per theme through a mask so one file serves both. */
+/*
+ * The chat background: a repeating pattern, tinted per theme through a mask so one shape serves both
+ * light and dark. "Plain" is the theme's own background: near-black in dark, soft white in light.
+ * Chosen in Settings as data-wall on <html>; the same classes set a pattern on just one element, for
+ * the tiles in Settings.
+ */
+:root,
+.wall-doodles {
+  --wall-mask: url("/doodles.svg");
+  --wall-size: 432px;
+  --wall-pattern: 1;
+}
 .wallpaper {
   position: relative;
   isolation: isolate;
-  background: var(--wall-wash, none) var(--wall);
+  background: var(--wall);
 }
 .wallpaper::before {
   content: "";
@@ -201,93 +206,40 @@ body {
   inset: 0;
   z-index: -1;
   background-color: var(--doodle);
-  -webkit-mask: url("/doodles.svg") repeat;
-  mask: url("/doodles.svg") repeat;
-  -webkit-mask-size: 432px;
-  mask-size: 432px;
+  -webkit-mask: var(--wall-mask) repeat;
+  mask: var(--wall-mask) repeat;
+  -webkit-mask-size: var(--wall-size);
+  mask-size: var(--wall-size);
   pointer-events: none;
-  opacity: var(--wall-doodles, 1);
+  opacity: var(--wall-pattern);
 }
-
-/* A bubble's tail: the small corner WhatsApp puts on the first message of a run. */
-.tail-in::before,
-.tail-out::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  width: 8px;
-  height: 13px;
-}
-.tail-in::before {
-  left: -8px;
-  background: var(--bubble-in);
-  clip-path: polygon(0 0, 100% 0, 100% 100%);
-}
-.tail-out::before {
-  right: -8px;
-  background: var(--bubble-out);
-  clip-path: polygon(0 0, 100% 0, 0 100%);
-}
-/* Tails turned off in Settings: every bubble keeps all four corners. */
-:root[data-tail="off"] .tail-in::before,
-:root[data-tail="off"] .tail-out::before {
-  display: none;
-}
-:root[data-tail="off"] .tail-in {
-  border-top-left-radius: var(--bubble-radius);
-}
-:root[data-tail="off"] .tail-out {
-  border-top-right-radius: var(--bubble-radius);
-}
-
-/* Wallpapers: the doodles, plain, or a soft wash with a dark version. Chosen in Settings as
-   data-wall on <html>; the same classes set them on just one element, for the tiles in Settings. */
-:root[data-wall]:not([data-wall="doodles"]),
+:root[data-wall="plain"],
 .wall-plain {
-  --wall-doodles: 0;
+  --wall-pattern: 0;
 }
-.wall-doodles {
-  --wall-doodles: 1;
-  --wall-wash: none;
+:root[data-wall="dots"],
+.wall-dots {
+  --wall-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22'%3E%3Ccircle cx='3' cy='3' r='1.5'/%3E%3C/svg%3E");
+  --wall-size: 22px;
+  --wall-pattern: 1;
 }
-.wall-plain {
-  --wall-wash: none;
+:root[data-wall="grid"],
+.wall-grid {
+  --wall-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath d='M32 0H0V32' fill='none' stroke='black' stroke-width='1'/%3E%3C/svg%3E");
+  --wall-size: 32px;
+  --wall-pattern: 1;
 }
-:root[data-wall="sky"],
-.wall-sky {
-  --wall-doodles: 0;
-  --wall-wash: linear-gradient(160deg, #dff1ff, #f3e9ff);
+:root[data-wall="lines"],
+.wall-lines {
+  --wall-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14'%3E%3Cpath d='M-2 16 16 -2M-2 2 2 -2M12 16 16 12' fill='none' stroke='black' stroke-width='1.2'/%3E%3C/svg%3E");
+  --wall-size: 14px;
+  --wall-pattern: 1;
 }
-:root.dark[data-wall="sky"],
-.dark .wall-sky {
-  --wall-wash: linear-gradient(160deg, #0d2233, #1d1733);
-}
-:root[data-wall="mint"],
-.wall-mint {
-  --wall-doodles: 0;
-  --wall-wash: linear-gradient(160deg, #dcf8ec, #fdf6dc);
-}
-:root.dark[data-wall="mint"],
-.dark .wall-mint {
-  --wall-wash: linear-gradient(160deg, #0c2a22, #262410);
-}
-:root[data-wall="blush"],
-.wall-blush {
-  --wall-doodles: 0;
-  --wall-wash: linear-gradient(160deg, #ffe4ec, #ffeedd);
-}
-:root.dark[data-wall="blush"],
-.dark .wall-blush {
-  --wall-wash: linear-gradient(160deg, #2e1520, #2b1d12);
-}
-:root[data-wall="dusk"],
-.wall-dusk {
-  --wall-doodles: 0;
-  --wall-wash: linear-gradient(160deg, #d9dcff, #ffd9e8);
-}
-:root.dark[data-wall="dusk"],
-.dark .wall-dusk {
-  --wall-wash: linear-gradient(160deg, #191b3d, #351a2b);
+:root[data-wall="waves"],
+.wall-waves {
+  --wall-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='14'%3E%3Cpath d='M0 7Q10 0 20 7T40 7' fill='none' stroke='black' stroke-width='1.3'/%3E%3C/svg%3E");
+  --wall-size: 40px 14px;
+  --wall-pattern: 1;
 }
 
 /* The welcome screen's logo: its two arcs light up in turn, inner then outer, then rest. */
@@ -335,6 +287,55 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .sheet,
   .sheet-backdrop {
+    animation: none;
+  }
+}
+
+/* Small movements that make the app feel alive. All of them stop for people who ask for less motion. */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes pop-in {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.18);
+  }
+}
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+}
+.page-in {
+  animation: page-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.pop-in {
+  animation: pop-in 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.message-in {
+  animation: message-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.notice-in {
+  animation: notice-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-in,
+  .pop-in,
+  .message-in,
+  .notice-in {
     animation: none;
   }
 }

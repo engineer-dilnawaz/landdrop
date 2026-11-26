@@ -16,6 +16,7 @@ import {
   PlayIcon,
   ReplyIcon,
   SaveIcon,
+  PinIcon,
   TickIcon,
   UploadProgress,
   colourFor,
@@ -55,7 +56,6 @@ export function Bubble({
   nameOf,
   own,
   showSender,
-  first,
   progress,
   downloadUrl,
   previewUrl,
@@ -66,14 +66,13 @@ export function Bubble({
   onOpenFolder,
   avatar,
   receipt,
+  pinned = false,
 }: {
   message: Message;
   nameOf: (id: string | undefined, fallback: string) => string;
   own: boolean;
   /** Group chats name the sender at the top of their run of messages, like WhatsApp. */
   showSender: boolean;
-  /** First message of a run: it gets the tail. */
-  first: boolean;
   progress?: Progress;
   downloadUrl: string;
   previewUrl: string;
@@ -87,6 +86,8 @@ export function Bubble({
   avatar?: ReactNode;
   /** Your own messages' ticks. */
   receipt?: Receipt;
+  /** This is the chat's pinned message: a pin shows beside its time. */
+  pinned?: boolean;
 }) {
   const a = message.attachment;
   const senderName = nameOf(message.senderId, message.senderName);
@@ -105,7 +106,7 @@ export function Bubble({
   const preview = a && isAvailable(a) && !previewFailed ? previewKind(a) : undefined;
   /** Photos and videos fill the bubble; voice messages sit inside it like text. */
   const media = preview === "image" || preview === "video";
-  const meta = <Meta at={message.createdAt} own={own} status={a?.status} receipt={receipt} />;
+  const meta = <Meta at={message.createdAt} own={own} status={a?.status} receipt={receipt} pinned={pinned} />;
 
   // Swipe right to reply; press and hold for the actions. Vertical drags stay with the page scroll.
   const handlers = {
@@ -176,13 +177,11 @@ export function Bubble({
         aria-label={own ? undefined : `${senderName}:`}
         style={{ transform: dx ? `translateX(${dx}px)` : undefined }}
         // "isolate" lets a live file's sparkles sit between the bubble colour and its content.
-        className={`group relative isolate max-w-[85%] touch-pan-y rounded-(--bubble-radius) text-(length:--chat-text) leading-(--chat-leading) shadow-[0_1px_.5px_rgba(11,20,26,.13)] select-none [-webkit-touch-callout:none] [-webkit-user-select:none] md:max-w-[65%] ${
+        className={`group relative isolate max-w-[85%] touch-pan-y rounded-(--bubble-radius) text-(length:--chat-text) leading-(--chat-leading) border shadow-sm select-none [-webkit-touch-callout:none] [-webkit-user-select:none] md:max-w-[65%] ${
           dx ? "" : "transition-transform"
-        } ${own ? "bg-bubble-out text-bubble-out-ink" : "bg-bubble-in text-foreground"} ${
-          first ? (own ? "tail-out rounded-tr-none" : "tail-in rounded-tl-none") : ""
-        } ${
-          // Media fills the bubble with a thin frame, like WhatsApp; live media gets a wider one so its sparkles show.
-          media ? (a?.status === "live" ? "p-2" : "p-[3px]") : "px-[9px] pb-2 pt-1.5"
+        } ${own ? "border-transparent bg-bubble-out text-bubble-out-ink" : "border-divider bg-bubble-in text-foreground"} ${
+          // Media fills the bubble with a thin frame; live media gets a wider one so its sparkles show.
+          media ? (a?.status === "live" ? "p-2" : "p-[3px]") : "px-3 pb-2 pt-2"
         }`}
       >
         {/* WhatsApp's ⌄ on hover: the same actions as press and hold. */}
@@ -242,7 +241,7 @@ export function Bubble({
             {a.mimeType === "image/gif" && <span className={`${BADGE} left-2 top-2`}>GIF</span>}
             {!message.text && (
               <span className="pointer-events-none absolute inset-x-0 bottom-0 flex h-9 items-end justify-end rounded-b-(--media-radius) bg-linear-to-b from-transparent to-black/45 px-2 pb-1 text-white">
-                <Meta at={message.createdAt} own={own} status={a.status} receipt={receipt} onMedia />
+                <Meta at={message.createdAt} own={own} status={a.status} receipt={receipt} pinned={pinned} onMedia />
               </span>
             )}
           </div>
@@ -277,7 +276,7 @@ export function Bubble({
               )}
               {!message.text && (
                 <span className="pointer-events-none absolute bottom-0 right-0 flex h-9 items-end px-2 pb-1 text-white">
-                  <Meta at={message.createdAt} own={own} status={a.status} receipt={receipt} onMedia />
+                  <Meta at={message.createdAt} own={own} status={a.status} receipt={receipt} pinned={pinned} onMedia />
                 </span>
               )}
             </button>
@@ -383,18 +382,25 @@ function Meta({
   own,
   status,
   receipt = "sent",
+  pinned = false,
   onMedia = false,
 }: {
   at: number;
   own: boolean;
   status?: Attachment["status"];
   receipt?: Receipt;
+  pinned?: boolean;
   onMedia?: boolean;
 }) {
   // Faded on bubbles; full white over photos. Blue ticks are never faded.
   const faded = onMedia ? "" : "opacity-60";
   return (
     <span className="inline-flex items-center gap-1 text-[11px] leading-4">
+      {pinned && (
+        <span aria-label="Pinned" title="Pinned" className={faded}>
+          <PinIcon size={12} />
+        </span>
+      )}
       <time className={faded}>{formatTime(at)}</time>
       {own &&
         (status === "uploading" ? (

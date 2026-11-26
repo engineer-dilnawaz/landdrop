@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Transform, type Readable } from "node:stream";
@@ -368,6 +368,42 @@ export class ChatStore {
     return message;
   }
 
+  /**
+   * Sends a copy of a message `sender` can see to `chatId`. A stored file is copied on disk, so
+   * nothing is downloaded or uploaded again; a file still uploading or shared live from its
+   * sender isn't here to copy, so it can't be forwarded.
+   */
+  async forward(sender: Device, messageId: string, chatId: string): Promise<Message> {
+    const source = this.get(messageId);
+    if (!source || !this.canSee(source.chatId, sender.id)) throw new HttpError(404, "Message not found");
+    this.assertCanPost(chatId, sender.id);
+    const { attachment } = source;
+    if (attachment && attachment.status !== "ready") throw new HttpError(409, "This file isn't stored here, so it can't be forwarded");
+    const message: Message = {
+      id: randomUUID(),
+      chatId,
+      senderId: sender.id,
+      senderName: sender.name,
+      createdAt: this.clock(),
+      ...(source.text !== undefined && { text: source.text }),
+      ...(attachment && { attachment: { ...attachment } }),
+    };
+    if (attachment) {
+      await copyFile(this.filePath(source.id), this.filePath(message.id));
+      // The row's checksum is written below: insert() only carries the fields every message has.
+    }
+    this.insert(message);
+    if (attachment) {
+      this.db.prepare("UPDATE messages SET att_sha256 = ? WHERE id = ?").run(attachment.sha256 ?? null, message.id);
+      if (attachment.folder) {
+        this.db.prepare("INSERT INTO folder_lists (message_id, files) SELECT ?, files FROM folder_lists WHERE message_id = ?").run(message.id, source.id);
+      }
+    }
+    const stored = this.get(message.id)!;
+    this.broadcast({ type: "message:created", message: stored }, chatId);
+    return stored;
+  }
+
   /** What's in a shared folder, in the order of its bytes. */
   folderFiles(id: string): FolderFile[] {
     const row = this.db.prepare("SELECT files FROM folder_lists WHERE message_id = ?").get(id) as { files: string } | undefined;
@@ -550,6 +586,10 @@ export class ChatStore {
     this.db.prepare("DELETE FROM chat_clears WHERE chat_id = ?").run(id);
     this.db.prepare("DELETE FROM chat_reads WHERE chat_id = ?").run(id);
     this.db.prepare("DELETE FROM groups WHERE id = ?").run(id);
+  }
+
+  groupName(id: string): string | undefined {
+    return this.group(id)?.name;
   }
 
   private group(id: string): Group | undefined {

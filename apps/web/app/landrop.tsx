@@ -45,10 +45,13 @@ import { MediaViewer, type MediaItem } from "./media-viewer";
 import { MessageInfoSheet } from "./message-info";
 import { receiptOf, recipientsOf, type ReceiptContext, type Reads } from "./receipts";
 import { BottomTabs, Rail, type Panel } from "./nav";
-import { Settings } from "./settings";
+import { MAX_PINNED_CHATS, pinChat, pinMessage, unpinChat, unpinMessage, usePins } from "./pins";
+import { ConfirmRemoveSheet, ForwardSheet } from "./selection";
+import { Settings, SettingsDetail, type SettingsPage } from "./settings";
 import { Sidebar } from "./sidebar";
 import {
   AvatarPhotos,
+  ChatActionsSheet,
   ChatSheet,
   CloseIcon,
   LockIcon,
@@ -56,6 +59,7 @@ import {
   MessageSheet,
   PlusIcon,
   RenameDialog,
+  copyText,
   formatBytes,
   formatDay,
   formatTime,
@@ -283,12 +287,21 @@ export default function LanDrop() {
   const chatIdRef = useRef<string | undefined>(undefined);
   /** The message whose press-and-hold menu is open. */
   const [selected, setSelected] = useState<Message>();
+  /** Messages picked for copying, saving, forwarding or removing together, in the chat they were picked in. */
+  const [selection, setSelection] = useState<{ chatId: string; ids: string[] }>();
+  /** Picking where to forward: the picked messages, or the one whose menu was open (nothing stays picked after). */
+  const [forwarding, setForwarding] = useState<"picked" | "single">();
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   /** The shared folder open in the folder browser, by message id. */
   const [openFolder, setOpenFolder] = useState<string>();
   /** The message whose info (who has read it) is open. */
   const [infoFor, setInfoFor] = useState<string>();
   /** The chat whose press-and-hold menu is open in the list. */
   const [heldChat, setHeldChat] = useState<ChatSummary>();
+  /** The chat whose actions (pin, clear or delete) are open; "Clear" or "Delete" then asks via heldChat. */
+  const [chatMenu, setChatMenu] = useState<ChatSummary>();
+  /** What's pinned on this device: up to two chats at the top of the list, and one message per chat. */
+  const pins = usePins();
   /** Picking devices for a new group, or to add to the open group. */
   const [groupPicker, setGroupPicker] = useState<"create" | "add">();
   const [groupInfo, setGroupInfo] = useState(false);
@@ -302,6 +315,13 @@ export default function LanDrop() {
   /** The "Available devices" screen, shown in place of the chat list. */
   /** What the list column shows: chats, the device list (WhatsApp's "New chat") or settings. */
   const [panel, setPanel] = useState<Panel>("chats");
+  /** The settings page open on the right; none on a phone until one is tapped (computers show Profile). */
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>();
+  /** Switching panel always lands on the settings list, never on a page left open earlier. */
+  const goTo = (next: Panel) => {
+    setSettingsPage(undefined);
+    setPanel(next);
+  };
   const picking = panel === "devices";
   /** The picker's "Also on this Wi-Fi" list; undefined until the first scan finishes. */
   const [networkDevices, setNetworkDevices] = useState<NetworkDevice[]>();
@@ -375,7 +395,7 @@ export default function LanDrop() {
           // A first visit opens on "Available devices", to show straight away who else is around.
           if (askForName.current) {
             setRenaming("welcome");
-            setPanel("devices");
+            goTo("devices");
           }
           askForName.current = false;
         }
@@ -483,6 +503,7 @@ export default function LanDrop() {
     // Each chat keeps its own draft; replies and picked files belong to the chat they were made in.
     setReplyTo(undefined);
     setFiles([]);
+    setSelection(undefined);
     if (id) {
       // Marked as opened from inside LANDrop, so closing can go back to the list. Like WhatsApp, only one
       // chat sits above the list: switching chats replaces it, so Back always returns to the list.
@@ -652,7 +673,7 @@ export default function LanDrop() {
       const group = await api<Group>(routes.groups, "POST", { name, members: [...deviceIds, ...ownBrowsers.map((d) => d.id)] });
       dispatch({ type: "event", event: { type: "group:updated", group } });
       setGroupPicker(undefined);
-      setPanel("chats");
+      goTo("chats");
       openChat(group.id);
     } catch (err) {
       dispatch({ type: "notice", notice: `Couldn't create the group: ${(err as Error).message}` });
@@ -812,9 +833,15 @@ export default function LanDrop() {
         ...people.map((p) => summarize(p.id, p.name, "private", p.online, p.chatIds)),
       ]
         .filter((c) => c.kind !== "private" || c.lastAt !== undefined || c.id === activeChat?.id)
-        // Most recent conversation first; an empty one just opened sits at the end.
-        .sort((a, b) => (b.lastAt ?? -1) - (a.lastAt ?? -1))
+        .map((c) => ({ ...c, pinned: pins.chats.includes(c.id) }))
+        // Pinned chats first, then the most recent conversation; an empty one just opened sits at the end.
+        .sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.lastAt ?? -1) - (a.lastAt ?? -1))
     : [];
+  function togglePinChat(id: string) {
+    if (pins.chats.includes(id)) return unpinChat(id);
+    if (!pinChat(id)) dispatch({ type: "notice", notice: `You can pin up to ${MAX_PINNED_CHATS} chats. Unpin one first.` });
+  }
+  const pinnedMessage = activeChat ? chatMessages.find((m) => m.id === pins.messages[activeChat.id]) : undefined;
   const openGroup = activeChat?.kind === "group" ? state.groups[activeChat.id] : undefined;
   /** Phones and computers that can be put in a group: all of them for a new one, those not in it yet for the open one. */
   const groupContacts: Contact[] = people
@@ -824,6 +851,70 @@ export default function LanDrop() {
   const pickableDevices: PickableDevice[] = people
     .map((p) => ({ chatId: p.id, name: p.name, online: p.online, status: p.online ? "online" : formatLastSeen(p.lastSeen) }))
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  // ---------- Picking several messages ----------
+
+  const picked = selection && activeChat?.id === selection.chatId ? chatMessages.filter((m) => selection.ids.includes(m.id)) : [];
+  const canRemoveMessage = (m: Message) => m.senderId === selfId || (state.isHost && m.chatId === GROUP_CHAT_ID);
+  /** Only files the host holds can be copied to another chat; live or still-uploading ones aren't there to copy. */
+  const canForwardMessage = (m: Message) => !m.attachment || m.attachment.status === "ready";
+  const canSaveMessage = (m: Message) => !!m.attachment && isAvailable(m.attachment);
+
+  function toggleSelected(m: Message) {
+    if (!activeChat) return;
+    setSelection((current) => {
+      const ids = current?.chatId === activeChat.id ? current.ids : [];
+      const next = ids.includes(m.id) ? ids.filter((id) => id !== m.id) : [...ids, m.id];
+      return next.length ? { chatId: activeChat.id, ids: next } : undefined;
+    });
+  }
+
+  function copyPicked() {
+    const lines = picked.filter((m) => m.text).map((m) => (picked.length > 1 ? `${m.senderId === selfId ? "You" : nameOf(m.senderId, m.senderName)}: ${m.text}` : m.text!));
+    if (lines.length && copyText(lines.join("\n"))) dispatch({ type: "notice", notice: lines.length === 1 ? "Copied" : `Copied ${lines.length} messages` });
+    setSelection(undefined);
+  }
+
+  /** One download after another: browsers drop several started in the same instant. */
+  function savePicked() {
+    picked.filter(canSaveMessage).forEach((m, i) =>
+      setTimeout(() => {
+        const link = document.createElement("a");
+        link.href = urls(m.id).download;
+        link.download = m.attachment!.name;
+        document.body.append(link);
+        link.click();
+        link.remove();
+      }, i * 500),
+    );
+    setSelection(undefined);
+  }
+
+  async function forwardPicked(target: ChatSummary) {
+    setForwarding(undefined);
+    const sending = picked.filter(canForwardMessage);
+    let failed = picked.length - sending.length;
+    for (const m of sending) {
+      try {
+        await api<Message>(routes.forward, "POST", { messageId: m.id, chatId: target.id });
+      } catch {
+        failed++;
+      }
+    }
+    setSelection(undefined);
+    openChat(target.id);
+    dispatch({
+      type: "notice",
+      notice: failed ? `Forwarded ${picked.length - failed} of ${picked.length}. The rest weren't stored on the host yet.` : `Forwarded to ${target.title}`,
+    });
+  }
+
+  async function removePicked() {
+    setConfirmingRemove(false);
+    const removing = picked;
+    setSelection(undefined);
+    for (const m of removing) await removeMessage(m);
+  }
 
   const isFileDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
   const dropHandlers = {
@@ -873,28 +964,27 @@ export default function LanDrop() {
           unread={totalUnread}
           selfName={selfName}
           selfId={selfId}
-          onPanel={setPanel}
+          onPanel={goTo}
           onInvite={() => setInviting(true)}
         />
-        <Sidebar hidden={!!activeChat}>
+        <Sidebar hidden={panel === "settings" ? !!settingsPage : !!activeChat}>
           {panel === "devices" ? (
             <DevicePicker
               devices={pickableDevices}
               network={networkDevices}
               onPick={(id) => {
-                setPanel("chats");
+                goTo("chats");
                 openChat(id);
               }}
-              onBack={() => setPanel("chats")}
+              onBack={() => goTo("chats")}
               onInvite={() => setInviting(true)}
             />
           ) : panel === "settings" ? (
             <Settings
               selfName={selfName}
               selfId={selfId}
-              hasPhoto={!!(selfId && state.devices[selfId]?.avatarAt)}
-              onRename={() => setRenaming("rename")}
-              onPhoto={(photo) => void setPhoto(photo)}
+              page={settingsPage}
+              onPage={setSettingsPage}
             />
           ) : (
             <ChatList
@@ -902,17 +992,26 @@ export default function LanDrop() {
               activeId={activeChat?.id}
               connection={state.connection}
               onOpen={openChat}
-              onHold={setHeldChat}
+              onHold={setChatMenu}
               onInvite={() => setInviting(true)}
-              onNewChat={() => setPanel("devices")}
+              onNewChat={() => goTo("devices")}
               onNewGroup={() => setGroupPicker("create")}
-              onSettings={() => setPanel("settings")}
+              onSettings={() => goTo("settings")}
             />
           )}
-          <BottomTabs panel={panel} unread={totalUnread} onPanel={setPanel} />
+          <BottomTabs panel={panel} unread={totalUnread} onPanel={goTo} />
         </Sidebar>
-        <section className={`${activeChat ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
-          {activeChat ? (
+        <section className={`${panel === "settings" ? (settingsPage ? "flex" : "hidden md:flex") : activeChat ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
+          {panel === "settings" ? (
+            <SettingsDetail
+              page={settingsPage ?? "profile"}
+              selfName={selfName}
+              selfId={selfId}
+              onRename={rename}
+              onPhoto={(photo) => void setPhoto(photo)}
+              onBack={() => setSettingsPage(undefined)}
+            />
+          ) : activeChat ? (
             <ChatView
               chat={activeChat}
               messages={chatMessages}
@@ -959,6 +1058,33 @@ export default function LanDrop() {
               }}
               onReply={setReplyTo}
               onLongPress={setSelected}
+              chatPinned={pins.chats.includes(activeChat.id)}
+              onTogglePinChat={() => togglePinChat(activeChat.id)}
+              pinned={
+                pinnedMessage && {
+                  id: pinnedMessage.id,
+                  sender: pinnedMessage.senderId === selfId ? "You" : nameOf(pinnedMessage.senderId, pinnedMessage.senderName),
+                  preview: messagePreview(pinnedMessage),
+                  onUnpin: () => unpinMessage(activeChat.id),
+                }
+              }
+              selection={
+                picked.length
+                  ? {
+                      ids: new Set(picked.map((m) => m.id)),
+                      canCopy: picked.some((m) => m.text),
+                      canDownload: picked.some(canSaveMessage),
+                      canForward: picked.some(canForwardMessage),
+                      canDelete: picked.every(canRemoveMessage),
+                      onToggle: toggleSelected,
+                      onCopy: copyPicked,
+                      onDownload: savePicked,
+                      onForward: () => setForwarding("picked"),
+                      onDelete: () => setConfirmingRemove(true),
+                      onCancel: () => setSelection(undefined),
+                    }
+                  : undefined
+              }
             />
           ) : (
             // WhatsApp Web's welcome pane while no chat is open.
@@ -981,11 +1107,11 @@ export default function LanDrop() {
         {state.notice && (
           <div
             role="alert"
-            className="fixed bottom-24 left-1/2 z-30 flex w-[min(92vw,30rem)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg bg-[#323739] py-3 pl-5 pr-2 text-[14px] text-white shadow-xl md:bottom-6"
+            className="notice-in fixed bottom-24 left-1/2 z-30 flex w-[min(92vw,30rem)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg border border-divider bg-panel py-3 pl-5 pr-2 text-[14px] text-foreground shadow-lg md:bottom-6"
           >
             <span className="pt-0.5">{state.notice}</span>
             <button
-              className="flex size-7 shrink-0 items-center justify-center rounded-full text-white/70 hover:bg-white/10"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted hover:bg-hover"
               onClick={() => dispatch({ type: "notice" })}
               aria-label="Dismiss"
             >
@@ -1038,6 +1164,22 @@ export default function LanDrop() {
         )}
         {inviting && <JoinDialog networkAddresses={fetchNetworkAddresses} onClose={() => setInviting(false)} />}
 
+        {chatMenu && (
+          <ChatActionsSheet
+            title={chatMenu.title}
+            pinned={pins.chats.includes(chatMenu.id)}
+            deleteLabel={chatMenu.kind === "private" ? "Delete chat" : "Clear chat"}
+            onPin={() => {
+              togglePinChat(chatMenu.id);
+              setChatMenu(undefined);
+            }}
+            onDelete={() => {
+              setHeldChat(chatMenu);
+              setChatMenu(undefined);
+            }}
+            onClose={() => setChatMenu(undefined)}
+          />
+        )}
         {heldChat && (
           <ChatSheet
             title={heldChat.title}
@@ -1086,6 +1228,27 @@ export default function LanDrop() {
               setReplyTo(selected);
               setSelected(undefined);
             }}
+            pinned={!!activeChat && pins.messages[activeChat.id] === selected.id}
+            onPin={() => {
+              if (activeChat) {
+                if (pins.messages[activeChat.id] === selected.id) unpinMessage(activeChat.id);
+                else pinMessage(activeChat.id, selected.id);
+              }
+              setSelected(undefined);
+            }}
+            onSelect={() => {
+              if (activeChat) setSelection({ chatId: activeChat.id, ids: [selected.id] });
+              setSelected(undefined);
+            }}
+            onForward={
+              canForwardMessage(selected)
+                ? () => {
+                    if (activeChat) setSelection({ chatId: activeChat.id, ids: [selected.id] });
+                    setSelected(undefined);
+                    setForwarding("single");
+                  }
+                : undefined
+            }
             // Your own messages anywhere; in groups anyone's, to see who has read them.
             onInfo={
               selected.senderId === selfId || !Array.isArray(chatMembers(selected.chatId))
@@ -1099,6 +1262,15 @@ export default function LanDrop() {
             onClose={() => setSelected(undefined)}
           />
         )}
+        {forwarding && picked.length > 0 && (
+          <ForwardSheet chats={chats.filter((c) => c.id !== activeChat?.id)} count={picked.length} onPick={(chat) => void forwardPicked(chat)} onClose={() => {
+              // Backing out of a one-message forward leaves nothing picked, as if the menu had just closed.
+              if (forwarding === "single") setSelection(undefined);
+              setForwarding(undefined);
+            }}
+          />
+        )}
+        {confirmingRemove && picked.length > 0 && <ConfirmRemoveSheet count={picked.length} onConfirm={() => void removePicked()} onClose={() => setConfirmingRemove(false)} />}
         {infoMessage && (
           <MessageInfoSheet
             message={infoMessage}

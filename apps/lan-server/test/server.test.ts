@@ -1255,3 +1255,100 @@ describe("parseGateway", () => {
     expect(parseGateway("")).toBeUndefined();
   });
 });
+
+describe("host message hook", () => {
+  // Why: the host app turns this into a system notification, so it must fire for what others send
+  // to the host, and never echo the host's own messages or leak chats the host isn't part of.
+  async function startWithHook() {
+    await app.close();
+    const seen: { message: Message; groupName?: string }[] = [];
+    let fromHost = false;
+    app = await buildApp({ dataDir, isHost: () => fromHost, onMessage: (e) => seen.push(e) });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+    return { seen, asHost: (on: boolean) => (fromHost = on) };
+  }
+  const post = (client: Client, chatId: string, text: string) => api(client, "POST", routes.messages, { chatId, text });
+
+  it("reports what a guest sends to everyone, but not the host's own messages", async () => {
+    const { seen, asHost } = await startWithHook();
+    asHost(true);
+    const host = await join_("Host");
+    asHost(false);
+    const guest = await join_("Guest");
+
+    await post(guest, GROUP_CHAT_ID, "hello host");
+    expect(seen.map((e) => e.message.text)).toEqual(["hello host"]);
+
+    asHost(true);
+    await post(host, GROUP_CHAT_ID, "hello guests");
+    asHost(false);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("stays quiet about private chats the host isn't in", async () => {
+    const { seen, asHost } = await startWithHook();
+    asHost(true);
+    await join_("Host");
+    asHost(false);
+    const alice = await join_("Alice");
+    const bob = await join_("Bob");
+
+    await post(alice, privateChatId(alice.welcome.self.id, bob.welcome.self.id), "secret");
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("forwarding messages", () => {
+  // Why: "forward" must hand the other chat its own copy, so removing the original later doesn't
+  // break it, and it must never expose a chat or a file the forwarder couldn't already see.
+  const forward = (client: Client, messageId: string, chatId: string) => api(client, "POST", routes.forward, { messageId, chatId });
+
+  it("copies a text message into another chat as the forwarder's own", async () => {
+    const alice = await join_("Alice");
+    const bob = await join_("Bob");
+    const sent = (await (await api(alice, "POST", routes.messages, { chatId: GROUP_CHAT_ID, text: "see you at 5" })).json()) as Message;
+    const chatId = privateChatId(bob.welcome.self.id, alice.welcome.self.id);
+
+    const res = await forward(bob, sent.id, chatId);
+
+    expect(res.status).toBe(201);
+    const copy = (await res.json()) as Message;
+    expect(copy).toMatchObject({ chatId, text: "see you at 5", senderId: bob.welcome.self.id });
+    expect(copy.id).not.toBe(sent.id);
+  });
+
+  it("copies a stored file, which stays downloadable after the original is removed", async () => {
+    const alice = await join_("Alice");
+    const bob = await join_("Bob");
+    const data = Buffer.from("forwarded bytes");
+    const original = await attach(alice, data, "notes.txt", "text/plain");
+    await upload(alice, original.id, data);
+    await api(alice, "POST", routes.attachmentChecksum(original.id), { sha256: sha256(data) });
+    const chatId = privateChatId(bob.welcome.self.id, alice.welcome.self.id);
+
+    const copy = (await (await forward(bob, original.id, chatId)).json()) as Message;
+    await api(alice, "DELETE", routes.message(original.id));
+
+    expect(copy.attachment).toMatchObject({ name: "notes.txt", status: "ready", sha256: sha256(data) });
+    const res = await download(bob, copy.id);
+    expect(res.status).toBe(200);
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(data);
+  });
+
+  it("refuses a file that isn't stored on the host yet", async () => {
+    const alice = await join_("Alice");
+    const pending = await attach(alice, Buffer.from("not uploaded"));
+
+    expect((await forward(alice, pending.id, GROUP_CHAT_ID)).status).toBe(409);
+  });
+
+  it("refuses messages from chats the forwarder can't see", async () => {
+    const alice = await join_("Alice");
+    const bob = await join_("Bob");
+    const eve = await join_("Eve");
+    const secret = (await (await api(alice, "POST", routes.messages, { chatId: privateChatId(alice.welcome.self.id, bob.welcome.self.id), text: "private" })).json()) as Message;
+
+    expect((await forward(eve, secret.id, GROUP_CHAT_ID)).status).toBe(404);
+  });
+});

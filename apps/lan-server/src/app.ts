@@ -14,6 +14,7 @@ import {
   GROUP_CHAT_ID,
   CreateGroupRequestSchema,
   CreateMessageRequestSchema,
+  ForwardMessageRequestSchema,
   HISTORY_LIMIT,
   MAX_AVATAR_BYTES,
   MAX_FOLDER_LIST_BYTES,
@@ -27,6 +28,7 @@ import {
   type Attachment,
   type Device,
   type FolderFile,
+  type Message,
   type NetworkDevice,
   type ServerEvent,
 } from "@landrop/protocol";
@@ -54,6 +56,11 @@ export interface AppOptions {
    * Wi-Fi hardware address, or "host" for this machine. Tests substitute their own.
    */
   machineOf?: (address: string) => Promise<string | undefined>;
+  /**
+   * Called for each message a device other than the host sends to a chat the host takes part in,
+   * so the host app can tell its user about it. `groupName` is set when the chat is a group.
+   */
+  onMessage?: (event: { message: Message; groupName?: string }) => void;
 }
 
 interface Session {
@@ -86,6 +93,7 @@ export async function buildApp({
   webDir,
   scanNetwork = scanHostNetwork,
   machineOf = async (address) => (isHost(address) ? "host" : hardwareAddressOf(address)),
+  onMessage,
 }: AppOptions) {
   const app = Fastify({
     // Shutdown must not wait on a client that never finishes reading a response (e.g. a sleeping phone).
@@ -101,6 +109,8 @@ export async function buildApp({
   /** One entry per open socket; a device may have several tabs open. */
   const sessions = new Map<WebSocket, Session>();
   const sessionByToken = new Map<string, Session>();
+  /** Devices that have connected from the host machine itself, i.e. the host app's own chat window. */
+  const hostDeviceIds = new Set<string>();
 
   const online = (): Device[] => [...new Map([...sessions.values()].map((s) => [s.device.id, s.device])).values()];
   /** Sends to every connected device, or only to the members of a private chat or group (plus any devices in `alsoTo`). */
@@ -283,6 +293,7 @@ export async function buildApp({
           reads: store.readsFor(session.device.id),
           isHost: isHost(request.socket.remoteAddress),
         });
+        if (isHost(request.socket.remoteAddress)) hostDeviceIds.add(session.device.id);
         return broadcast({ type: "presence:update", online: online() });
       }
 
@@ -311,6 +322,15 @@ export async function buildApp({
   });
 
   // Room for a folder's list of files, which can run to tens of megabytes; senders gzip big ones.
+  /** Lets the host app know about a message from another device, if the host is in that chat. */
+  const tellHost = (message: Message, request: FastifyRequest) => {
+    if (!onMessage || isHost(request.socket.remoteAddress)) return;
+    const members = store.members(message.chatId);
+    if (members === "everyone" || (members && members.some((id) => hostDeviceIds.has(id)))) {
+      onMessage({ message, groupName: store.groupName(message.chatId) });
+    }
+  };
+
   app.post(routes.messages, { bodyLimit: MAX_FOLDER_LIST_BYTES, preParsing: gunzipBody }, async (request, reply) => {
     const { device, tab } = authenticate(request);
     const body = parse(CreateMessageRequestSchema, request.body);
@@ -322,6 +342,15 @@ export async function buildApp({
     if (message.attachment?.status === "live" || message.attachment?.folder) live.own(message.id, tab);
     // Indexed now, while its list is in hand, so the first person to open it doesn't wait.
     if ("attachment" in body && body.attachment.folder) indexOf(message.id, body.attachment.folder.files);
+    tellHost(message, request);
+    return reply.code(201).send(message);
+  });
+
+  app.post(routes.forward, async (request, reply) => {
+    const { device } = authenticate(request);
+    const body = parse(ForwardMessageRequestSchema, request.body);
+    const message = await store.forward(device, body.messageId, body.chatId);
+    tellHost(message, request);
     return reply.code(201).send(message);
   });
 

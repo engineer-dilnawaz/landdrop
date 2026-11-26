@@ -1,10 +1,17 @@
 name: Release
 
-# Push a version tag (git tag v0.1.3 && git push origin v0.1.3) to build the installers
-# and publish them as a GitHub release. The tag sets the app version, which "Check for Updates" compares.
+# Every push to main builds the installers and publishes them as a GitHub release.
+# The version is 0.2.<run number>, so it only ever goes up, which "Check for Updates" relies on.
+# Changes that touch only docs or the website don't need new installers.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", "site/**"]
+
+env:
+  VERSION: 0.2.${{ github.run_number }}
+
+concurrency: release
 
 jobs:
   windows:
@@ -14,7 +21,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm ci
-      - run: npm pkg set version=${GITHUB_REF_NAME#v} --workspace @landrop/desktop
+      - run: npm pkg set version=$VERSION --workspace @landrop/desktop
         shell: bash
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
@@ -29,7 +36,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm ci
-      - run: npm pkg set version=${GITHUB_REF_NAME#v} --workspace @landrop/desktop
+      - run: npm pkg set version=$VERSION --workspace @landrop/desktop
       - run: npm run dist:mac && npm run dist:mac-intel
       - uses: actions/upload-artifact@v4
         with:
@@ -48,6 +55,6 @@ jobs:
         with:
           pattern: installers-*
           merge-multiple: true
-      - run: gh release create "$GITHUB_REF_NAME" LANDrop-*.dmg LANDrop-*.exe --repo "$GITHUB_REPOSITORY" --title "LANDrop ${GITHUB_REF_NAME#v}" --generate-notes
+      - run: gh release create "v$VERSION" LANDrop-*.dmg LANDrop-*.exe --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "LANDrop $VERSION" --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

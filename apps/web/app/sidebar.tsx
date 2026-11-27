@@ -73,7 +73,7 @@ export function Sidebar({
     <aside
       ref={asideRef}
       style={{ "--list-w": `${width}px` } as CSSProperties}
-      className={`${hidden ? "hidden md:flex" : "flex"} relative min-h-0 w-full flex-col bg-panel md:w-(--list-w) md:shrink-0 md:border-r md:border-divider`}
+      className={`${hidden ? "hidden md:flex" : "flex"} relative min-h-0 w-full flex-col bg-panel md:w-(--list-w) md:shrink-0 `}
     >
       {children}
       <div

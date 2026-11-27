@@ -23,7 +23,7 @@ export function ExpressionPanel({
     <div className="flex h-[min(340px,45dvh)] flex-col overflow-hidden rounded-lg bg-panel md:mx-24">
       <div className="min-h-0 flex-1">{tab === "emoji" ? <EmojiTab onEmoji={onEmoji} /> : <GifTab onGif={onGif} onError={onError} />}</div>
       {hasGifSearch && (
-        <div role="tablist" aria-label="Emoji or GIF" className="flex justify-center gap-1 border-t border-divider py-1.5">
+        <div role="tablist" aria-label="Emoji or GIF" className="flex justify-center gap-1 py-1.5">
           {(["emoji", "gif"] as const).map((t) => (
             <button
               key={t}

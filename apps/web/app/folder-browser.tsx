@@ -86,7 +86,7 @@ export function FolderBrowser({
 
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label={name} className="fixed inset-0 z-40 flex flex-col bg-panel text-foreground">
-      <header className="flex items-center gap-1 border-b border-divider bg-bar px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:px-6 md:pt-3 md:pb-3">
+      <header className="flex items-center gap-1 bg-bar px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:px-6 md:pt-3 md:pb-3">
         <button
           onClick={() => (dir ? setDir(path.slice(0, -1).join("/")) : onClose())}
           className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-hover"

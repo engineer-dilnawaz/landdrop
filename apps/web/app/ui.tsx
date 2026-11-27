@@ -1,7 +1,7 @@
 "use client";
 
 import { AvatarArt, defaultAvatar } from "./avatars";
-import { Add, ArrowDown2, ArrowLeft, Back, Camera, Clock, Copy, Danger, Devices, DocumentDownload, DocumentText, EmojiHappy, Export, Folder2, Forward, Gallery, InfoCircle, Lock1, MessageAdd1, Messages1, More, Notification, Pause, People, Play, Scan, SearchNormal1, Send2, Setting2, Sun1, Trash, Wifi } from "iconsax-react";
+import { Add, ArrowDown2, Edit2, User, ArrowLeft, Back, Camera, Clock, Copy, Danger, Devices, DocumentDownload, DocumentText, EmojiHappy, Export, Folder2, Forward, Gallery, InfoCircle, Lock1, MessageAdd1, Messages1, More, Notification, Pause, People, Play, Scan, SearchNormal1, Send2, Setting2, Sun1, Trash, Wifi } from "iconsax-react";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MAX_DEVICE_NAME_LENGTH, isAvailable, type Message } from "@landrop/protocol";
@@ -36,16 +36,17 @@ export function Sheet({
 }) {
   useEscape(onClose);
   return createPortal(
-    <div className="sheet-backdrop fixed inset-0 z-50 flex items-end justify-center bg-[#0b141a]/50 dark:bg-black/60" onClick={onClose}>
+    // Phones keep the bottom sheet. From tablet width up it's a centred modal over a blurred backdrop.
+    <div className="sheet-backdrop fixed inset-0 z-50 flex items-end justify-center bg-[#0b141a]/50 md:items-center md:bg-[#0b141a]/35 md:p-6 md:backdrop-blur-md dark:bg-black/60 dark:md:bg-black/45" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label={label}
         aria-labelledby={labelledBy}
-        className={`sheet max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl border-t border-divider bg-panel pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_40px_rgba(0,0,0,.25)] ${className}`}
+        className={`sheet max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-panel pb-[max(1rem,env(safe-area-inset-bottom))] md:max-h-[85dvh] md:max-w-md md:rounded-3xl md:pb-4 md:pt-2 ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <span aria-hidden className="mx-auto mb-1 mt-2.5 block h-1 w-9 rounded-full bg-divider" />
+        <span aria-hidden className="mx-auto mb-1 mt-2.5 block h-1 w-9 rounded-full bg-divider md:hidden" />
         {children}
       </div>
     </div>,
@@ -57,9 +58,9 @@ export function Sheet({
 export const SHEET_ITEM = "flex w-full items-center gap-4 px-6 py-3.5 text-left text-[15px] transition-colors hover:bg-hover active:bg-field";
 
 export const TEXT_BUTTON =
-  "rounded-lg px-4 py-2.5 text-[14px] font-medium text-accent transition-all hover:bg-hover active:scale-[0.97] disabled:opacity-40 disabled:hover:bg-transparent";
+  "rounded-lg px-4 py-2.5 text-[14px] font-medium text-chip-on-ink transition-all hover:bg-hover active:scale-[0.97] disabled:opacity-40 disabled:hover:bg-transparent";
 export const FILLED_BUTTON =
-  "rounded-lg bg-accent px-5 py-2.5 text-[14px] font-medium text-white shadow-sm transition-all hover:brightness-110 active:scale-[0.97] disabled:opacity-40";
+  "rounded-lg bg-accent-fill px-5 py-2.5 text-[14px] font-medium text-white transition-all hover:brightness-90 active:scale-[0.97] disabled:opacity-40";
 
 /** WhatsApp-style dialog with a text field for choosing your name in the chat. */
 export function RenameDialog({
@@ -103,7 +104,7 @@ export function RenameDialog({
           autoFocus
           enterKeyHint="done"
           aria-label="Your name"
-          className="mt-5 w-full border-b-2 border-accent bg-transparent pb-1.5 text-[16px] outline-none select-text [-webkit-user-select:text]"
+          className="mt-5 w-full rounded-lg bg-field px-3 py-2 text-[16px] outline-none select-text [-webkit-user-select:text]"
         />
         <p className="mt-1 text-right text-[12px] text-muted tabular-nums">
           {MAX_DEVICE_NAME_LENGTH - name.length}
@@ -224,6 +225,7 @@ export function ChatActionsSheet({
   pinned,
   deleteLabel,
   onPin,
+  onRename,
   onDelete,
   onClose,
 }: {
@@ -232,6 +234,8 @@ export function ChatActionsSheet({
   /** "Clear chat" or "Delete chat". */
   deleteLabel: string;
   onPin: () => void;
+  /** The shared chat can be renamed; others can't. */
+  onRename?: () => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
@@ -242,6 +246,12 @@ export function ChatActionsSheet({
         <PinIcon size={20} />
         {pinned ? "Unpin from top" : "Pin to top"}
       </button>
+      {onRename && (
+        <button onClick={onRename} className={SHEET_ITEM}>
+          <EditIcon />
+          Rename chat
+        </button>
+      )}
       <button onClick={onDelete} className={`${SHEET_ITEM} text-danger`}>
         <TrashIcon />
         {deleteLabel}
@@ -347,6 +357,9 @@ export const InfoIcon = icon(InfoCircle, 20);
 export const ClockIcon = icon(Clock, 14);
 export const AlertIcon = icon(Danger, 14);
 /** Iconsax has no pin, so this one is drawn to match: the same thin rounded stroke. */
+export const EditIcon = icon(Edit2, 20);
+export const UserIcon = icon(User, 20);
+
 export const PinIcon = ({ size = 20 }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d="M12 16.5V22" />
@@ -396,8 +409,8 @@ export function UploadProgress({ size, progress }: { size: number; progress?: Pr
         {done >= size && size > 0
           ? "Verifying…"
           : `${Math.floor(fraction * 100)}%${progress ? ` · ${formatBytes(progress.bytesPerSecond)}/s` : ""}${
-              remaining !== undefined ? ` · ${formatDuration(remaining)} left` : ""
-            }`}
+ remaining !== undefined ? ` · ${formatDuration(remaining)} left` : ""
+ }`}
       </p>
     </div>
   );
@@ -416,6 +429,7 @@ export function colourFor(seed: string): string {
 }
 
 const AVATAR_SIZES = {
+  xl: "size-28 text-[40px]",
   profile: "size-20 text-[30px]",
   list: "size-[49px] text-[18px]",
   header: "size-10 text-[15px]",
@@ -455,6 +469,27 @@ export function Avatar({
 export const CloseIcon = ({ size = 24 }: IconProps) => (
   <svg {...sized(size)}>
     <path d="m6 6 12 12M18 6 6 18" />
+  </svg>
+);
+
+/** A spinning three-quarter circle, drawn as an icon (the app uses no borders). */
+export const Spinner = ({ size = 12, className = "" }: { size?: number; className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden className={`shrink-0 animate-spin motion-reduce:animate-none ${className}`}>
+    <path d="M12 3a9 9 0 1 0 9 9" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" />
+  </svg>
+);
+
+/** Two chevrons opening apart: unfold everything. */
+export const ExpandAllIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="m7 9 5-5 5 5M7 15l5 5 5-5" />
+  </svg>
+);
+
+/** Two chevrons closing together: fold everything. */
+export const CollapseAllIcon = ({ size = 24 }: IconProps) => (
+  <svg {...sized(size)}>
+    <path d="m7 4 5 5 5-5M7 20l5-5 5 5" />
   </svg>
 );
 

@@ -15,7 +15,7 @@ export interface Contact {
 }
 
 const FIELD =
-  "w-full border-b-2 border-accent bg-transparent pb-1.5 text-[16px] outline-none select-text [-webkit-user-select:text]";
+  "w-full rounded-lg bg-field px-3 py-2 text-[16px] outline-none select-text [-webkit-user-select:text]";
 
 /** Picks devices for a new group (with its name) or to add to one. */
 export function GroupMembersSheet({
@@ -87,8 +87,8 @@ export function GroupMembersSheet({
                   </span>
                   <span
                     aria-hidden
-                    className={`flex size-6 items-center justify-center rounded-full border-2 transition-colors ${
-                      on ? "border-accent bg-accent text-white" : "border-muted/50"
+                    className={`flex size-6 items-center justify-center rounded-full transition-colors ${
+                      on ? "bg-accent-fill text-white" : "bg-muted/35"
                     }`}
                   >
                     {on && <TickIcon />}
@@ -186,11 +186,11 @@ export function GroupInfoSheet({
         <p className="mt-1 text-[14px] text-muted">Group · {group.members.length} devices</p>
       </div>
 
-      <ul className="mt-4 max-h-[40dvh] overflow-y-auto border-t border-divider" aria-label="Members">
+      <ul className="mt-4 max-h-[40dvh] overflow-y-auto" aria-label="Members">
         {canAdd && (
           <li>
             <button onClick={onAdd} className={SHEET_ITEM}>
-              <span className="flex size-10 items-center justify-center rounded-full bg-accent text-white">
+              <span className="flex size-10 items-center justify-center rounded-full bg-accent-fill text-white">
                 <PlusIcon size={22} />
               </span>
               Add devices
@@ -205,7 +205,7 @@ export function GroupInfoSheet({
           </li>
         ))}
       </ul>
-      <button onClick={onLeave} className={`${SHEET_ITEM} border-t border-divider text-danger`}>
+      <button onClick={onLeave} className={`${SHEET_ITEM} text-danger`}>
         Leave group
       </button>
     </Sheet>

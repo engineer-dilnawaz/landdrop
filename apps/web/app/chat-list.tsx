@@ -1,16 +1,19 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
 import { LONG_PRESS_MS } from "./bubble";
+import { EmptyState } from "./empty-state";
 import {
   Avatar,
+  CloseIcon,
   DropdownMenu,
   ICON_BUTTON,
   NewChatIcon,
   PeopleIcon,
+  PinIcon,
   QrIcon,
   SearchIcon,
-  PinIcon,
+  Spinner,
   TickIcon,
   WifiIcon,
   colourFor,
@@ -70,6 +73,7 @@ export function ChatList({
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("all");
   const q = query.trim().toLowerCase();
+  const unreadChats = chats.filter((c) => c.unread > 0).length;
   const shown = chats
     .filter(FILTERS.find((f) => f.id === filter)!.keep)
     .filter((c) => !q || c.title.toLowerCase().includes(q) || c.preview?.toLowerCase().includes(q));
@@ -77,9 +81,15 @@ export function ChatList({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <header className="flex h-16 shrink-0 items-center gap-1 px-4 pt-[env(safe-area-inset-top)] box-content md:box-border md:pl-5 md:pt-0">
-        <h1 className="flex-1 text-[22px] font-bold text-accent md:text-foreground">LANDrop</h1>
+        <h1 className="flex-1 text-[22px] font-semibold tracking-tight text-accent md:text-foreground">
+          <span className="md:hidden">LANDrop</span>
+          <span className="hidden md:inline">Chats</span>
+        </h1>
         <button onClick={onInvite} className={`${ICON_BUTTON} md:hidden`} aria-label="Add a device: show QR code" title="Add a device">
           <QrIcon />
+        </button>
+        <button onClick={onNewChat} className={`${ICON_BUTTON} hidden bg-field text-foreground hover:bg-hover md:flex`} aria-label="New chat" title="New chat">
+          <NewChatIcon size={20} />
         </button>
         <DropdownMenu
           label="Menu"
@@ -95,8 +105,8 @@ export function ChatList({
       {connection !== "online" && (
         <div
           role="status"
-          className={`page-in mx-3 mb-3 flex items-center gap-3 rounded-xl border p-3 ${
-            connection === "offline" ? "border-amber-500/30 bg-amber-500/10" : "border-divider bg-field"
+          className={`page-in mx-3 mb-3 flex items-center gap-3 rounded-xl p-3 ${
+            connection === "offline" ? "bg-amber-500/10" : "bg-field"
           }`}
         >
           <span
@@ -109,26 +119,36 @@ export function ChatList({
           <div className="min-w-0 flex-1">
             <p className="text-[14px] font-medium leading-5">{connection === "offline" ? "Can't reach the LANDrop host" : "Connecting…"}</p>
             <p className="flex items-center gap-1.5 text-[13px] leading-5 text-muted">
-              <span aria-hidden className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none" />
+              <Spinner size={12} />
               {connection === "offline" ? "Trying again automatically" : "Finding the host on this Wi-Fi"}
             </p>
           </div>
         </div>
       )}
 
-      <label className="mx-3 flex h-9 shrink-0 items-center gap-5 rounded-lg bg-field px-3 text-muted">
+      <label className="mx-3 flex h-10 shrink-0 items-center gap-2.5 rounded-xl bg-field px-3 text-muted transition-colors focus-within:bg-hover">
         <SearchIcon size={18} />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search or start a new chat"
+          placeholder="Search chats and messages"
           aria-label="Search chats"
           className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted select-text [-webkit-user-select:text]"
         />
+        {query && (
+          <button
+            onClick={() => setQuery("")}
+            aria-label="Clear search"
+            title="Clear"
+            className="flex size-6 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-panel hover:text-foreground"
+          >
+            <CloseIcon size={14} />
+          </button>
+        )}
       </label>
       {/* Scrolls sideways when the column is too narrow for every chip, like WhatsApp. */}
       <div
-        className="flex shrink-0 gap-2 overflow-x-auto px-3 pb-1.5 pt-2.5 [scrollbar-width:none]"
+        className="flex shrink-0 gap-1.5 overflow-x-auto px-3 pb-2 pt-3 [scrollbar-width:none]"
         role="group"
         aria-label="Filter chats"
       >
@@ -137,37 +157,44 @@ export function ChatList({
             key={f.id}
             onClick={() => setFilter(f.id)}
             aria-pressed={filter === f.id}
-            className={`shrink-0 rounded-full px-3.5 py-1 text-[14px] ${
-              filter === f.id ? "bg-chip-on text-chip-on-ink" : "bg-field text-muted hover:brightness-95"
+            className={`flex h-8 shrink-0 items-center gap-1.5 rounded-xl px-2.5 text-[13px] font-medium transition-colors active:scale-95 ${
+              filter === f.id ? "bg-foreground text-panel" : "bg-field text-muted hover:bg-hover hover:text-foreground"
             }`}
           >
             {f.label}
+            {f.id === "unread" && unreadChats > 0 && (
+              <span className={`rounded-md px-1.5 text-[11px] font-semibold tabular-nums ${filter === f.id ? "bg-panel/20" : "bg-accent-fill text-white"}`}>{unreadChats}</span>
+            )}
           </button>
         ))}
       </div>
 
-      <ul className="flex-1 overflow-y-auto pb-20 md:pb-0" aria-label="Chats">
-        {shown.map((chat) => (
-          <li key={chat.id}>
+      <ul className="flex-1 overflow-y-auto px-2 pb-20 md:pb-2" aria-label="Chats">
+        {shown.map((chat, i) => (
+          <Fragment key={chat.id}>
+            {/* With pinned chats, the list reads in two groups. */}
+            {chat.pinned && !shown[i - 1]?.pinned && <GroupLabel>Pinned</GroupLabel>}
+            {!chat.pinned && shown[i - 1]?.pinned && <GroupLabel>All chats</GroupLabel>}
+          <li>
             <button
               {...pressable(chat)}
               aria-current={chat.id === activeId ? "page" : undefined}
-              className={`flex h-[72px] w-full items-center gap-[15px] pl-[13px] text-left ${
-                chat.id === activeId ? "bg-field" : "hover:bg-hover active:bg-hover"
+              className={`flex h-[68px] w-full items-center gap-3.5 rounded-2xl px-3 text-left transition-colors ${
+                chat.id === activeId ? "bg-field" : "hover:bg-hover active:bg-field"
               }`}
             >
               <ChatAvatar chat={chat} />
-              <div className="flex h-full min-w-0 flex-1 flex-col justify-center border-b border-divider pr-[15px]">
+              <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="truncate text-[17px]">{chat.title}</p>
+                  <p className="truncate text-[15.5px] font-medium">{chat.title}</p>
                   {chat.lastAt !== undefined && (
-                    <span className={`shrink-0 text-[12px] ${chat.unread ? "text-accent" : "text-muted"}`}>
+                    <span className={`shrink-0 text-[12px] tabular-nums ${chat.unread ? "font-medium text-accent" : "text-muted"}`}>
                       {formatListTime(chat.lastAt)}
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 flex items-center justify-between gap-2">
-                  <p className="flex min-w-0 items-center gap-1 text-[14px] text-muted">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="flex min-w-0 items-center gap-1 text-[13.5px] text-muted">
                     <Preview text={chat.preview} />
                   </p>
                   {(chat.pinned || chat.unread > 0) && (
@@ -184,16 +211,27 @@ export function ChatList({
               </div>
             </button>
           </li>
+          </Fragment>
         ))}
         {shown.length === 0 && (q || filter !== "all") && (
-          <li className="px-8 py-10 text-center text-[14px] text-muted">
-            {q
-              ? `No chats match “${query.trim()}”.`
-              : filter === "unread"
-                ? "No unread chats."
-                : filter === "groups"
-                  ? "No groups yet. Start one from the menu."
-                  : "No private chats yet."}
+          <li>
+            {q ? (
+              <EmptyState kind="search" title="No chats found">
+                Nothing matches “{query.trim()}”. Try a different name or word.
+              </EmptyState>
+            ) : filter === "unread" ? (
+              <EmptyState kind="unread" title="You’re all caught up">
+                There are no unread chats right now.
+              </EmptyState>
+            ) : filter === "groups" ? (
+              <EmptyState kind="groups" title="No groups yet" action={<EmptyAction onClick={onNewGroup}>New group</EmptyAction>}>
+                Put a few devices together and chat with just them.
+              </EmptyState>
+            ) : (
+              <EmptyState kind="private" title="No private chats yet" action={<EmptyAction onClick={onNewChat}>Start a chat</EmptyAction>}>
+                Pick a device to message it directly. Only the two of you see it.
+              </EmptyState>
+            )}
           </li>
         )}
       </ul>
@@ -202,7 +240,7 @@ export function ChatList({
       <button
         onClick={onNewChat}
         aria-label="New chat"
-        className="absolute bottom-4 right-4 flex size-14 items-center justify-center rounded-2xl bg-accent text-white shadow-lg md:hidden"
+        className="absolute bottom-4 right-4 flex size-14 items-center justify-center rounded-2xl bg-accent-fill text-white transition-transform active:scale-95 md:hidden"
       >
         <NewChatIcon />
       </button>
@@ -224,10 +262,26 @@ function Preview({ text }: { text?: string }) {
   );
 }
 
+function EmptyAction({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button onClick={onClick} className="rounded-xl bg-accent-fill px-5 py-2.5 text-[14px] font-medium text-white transition-transform active:scale-95">
+      {children}
+    </button>
+  );
+}
+
+function GroupLabel({ children }: { children: ReactNode }) {
+  return (
+    <li aria-hidden className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted">
+      {children}
+    </li>
+  );
+}
+
 function UnreadBadge({ count }: { count: number }) {
   return (
     <span
-      className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-accent px-1.5 text-[12px] font-bold text-panel"
+      className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-lg bg-accent-fill px-1.5 text-[12px] font-semibold tabular-nums text-white"
       aria-label={`${count} unread`}
     >
       {count > 99 ? "99+" : count}
@@ -247,7 +301,7 @@ export function ChatAvatar({
   return (
     <span className="relative shrink-0">
       {chat.kind === "everyone" ? (
-        <span aria-hidden className={`flex items-center justify-center rounded-full bg-accent text-white ${box}`}>
+        <span aria-hidden className={`flex items-center justify-center rounded-full bg-accent-fill text-white ${box}`}>
           <WifiIcon size={icon} />
         </span>
       ) : chat.kind === "group" ? (
@@ -258,10 +312,10 @@ export function ChatAvatar({
         <Avatar name={chat.title} seed={chat.id} size={size} />
       )}
       {chat.online && chat.kind === "private" && (
-        <span
-          aria-label="online"
-          className="absolute bottom-0 right-0 size-3.5 rounded-full border-2 border-panel bg-accent"
-        />
+        // A dot set into a panel-coloured disc, so it reads against any avatar without a border.
+        <span aria-label="online" className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-panel">
+          <span className="size-2.5 rounded-full bg-accent" />
+        </span>
       )}
     </span>
   );

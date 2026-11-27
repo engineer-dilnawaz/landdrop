@@ -242,14 +242,16 @@ export function MediaViewer({
               aria-label={`${i + 1} of ${items.length}`}
               aria-current={i === index}
               className={`relative size-12 shrink-0 overflow-hidden rounded-md transition ${
-                i === index ? "ring-2 ring-accent" : "opacity-55 hover:opacity-90"
+                i === index ? "" : "opacity-45 hover:opacity-90"
               }`}
             >
               {m.kind === "video" ? (
                 <>
                   <video src={`${m.src}#t=0.1`} preload="metadata" muted playsInline className="size-full object-cover" />
-                  <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow">
-                    <PlayIcon size={16} />
+                  <span className="absolute inset-0 flex items-center justify-center text-white">
+                    <span className="flex rounded-full bg-black/45 p-1">
+                      <PlayIcon size={12} />
+                    </span>
                   </span>
                 </>
               ) : (

@@ -4,7 +4,18 @@
  * so the page cleans that output before showing it.
  */
 import hljs from "highlight.js/lib/common";
+import dart from "highlight.js/lib/languages/dart";
+import dockerfile from "highlight.js/lib/languages/dockerfile";
+import elixir from "highlight.js/lib/languages/elixir";
+import groovy from "highlight.js/lib/languages/groovy";
+import haskell from "highlight.js/lib/languages/haskell";
+import matlab from "highlight.js/lib/languages/matlab";
+import powershell from "highlight.js/lib/languages/powershell";
+import scala from "highlight.js/lib/languages/scala";
 import { Marked } from "marked";
+
+// The common set lacks these popular languages; each is small.
+for (const [name, language] of Object.entries({ dart, dockerfile, elixir, groovy, haskell, matlab, powershell, scala })) hljs.registerLanguage(name, language);
 
 const escape = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 

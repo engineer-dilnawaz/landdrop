@@ -1,11 +1,14 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { isAvailable, previewKind, type Attachment, type Message } from "@landrop/protocol";
 import type { Progress } from "./landrop";
 import { SparkleField } from "./sparkle-field";
 import type { Receipt } from "./receipts";
 import { VoicePlayer, formatClock } from "./voice";
+import { JsonViewer, parseJson } from "./json-viewer";
+import { detectSnippet } from "./snippets";
+import { SnippetViewer } from "./snippet-viewer";
 import {
   AlertIcon,
   ChevronIcon,
@@ -98,6 +101,13 @@ export function Bubble({
   const [previewFailed, setPreviewFailed] = useState(false);
   const [videoLength, setVideoLength] = useState<number>();
   const [expanded, setExpanded] = useState(false);
+  /** A message that is JSON gets a button that opens it full screen, formatted. */
+  const json = useMemo(() => (message.text ? parseJson(message.text) : undefined), [message.text]);
+  const [viewingJson, setViewingJson] = useState(false);
+  /** A curl command, code or Markdown gets the same kind of button. */
+  const snippet = useMemo(() => (json === undefined && message.text ? detectSnippet(message.text) : undefined), [json, message.text]);
+  const [viewingSnippet, setViewingSnippet] = useState(false);
+  const hasViewer = json !== undefined || snippet !== undefined;
   const shortText = message.text && !expanded ? truncateLongText(message.text) : undefined;
   /** Like WhatsApp, a message of just one to three emoji shows them big; more emoji a step up from text. */
   const emojis = message.text ? emojiOnlyCount(message.text) : 0;
@@ -166,7 +176,7 @@ export function Bubble({
     >
       <span
         aria-hidden
-        className="pointer-events-none absolute left-0 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-bar text-muted shadow"
+        className="pointer-events-none absolute left-0 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-bar text-muted"
         style={{ opacity: dx / SWIPE_TRIGGER_PX, transform: `translateY(-50%) scale(${dx >= SWIPE_TRIGGER_PX ? 1.15 : 1})` }}
       >
         <ReplyIcon size={18} />
@@ -177,9 +187,9 @@ export function Bubble({
         aria-label={own ? undefined : `${senderName}:`}
         style={{ transform: dx ? `translateX(${dx}px)` : undefined }}
         // "isolate" lets a live file's sparkles sit between the bubble colour and its content.
-        className={`group relative isolate max-w-[85%] touch-pan-y rounded-(--bubble-radius) text-(length:--chat-text) leading-(--chat-leading) border shadow-sm select-none [-webkit-touch-callout:none] [-webkit-user-select:none] md:max-w-[65%] ${
+        className={`group relative isolate max-w-[85%] touch-pan-y rounded-(--bubble-radius) text-(length:--chat-text) leading-(--chat-leading) select-none [-webkit-touch-callout:none] [-webkit-user-select:none] md:max-w-[65%] ${
           dx ? "" : "transition-transform"
-        } ${own ? "border-transparent bg-bubble-out text-bubble-out-ink" : "border-divider bg-bubble-in text-foreground"} ${
+        } ${own ? "bg-bubble-out text-bubble-out-ink" : "bg-bubble-in text-foreground"} ${
           // Media fills the bubble with a thin frame; live media gets a wider one so its sparkles show.
           media ? (a?.status === "live" ? "p-2" : "p-[3px]") : "px-3 pb-2 pt-2"
         }`}
@@ -188,8 +198,7 @@ export function Bubble({
         <button
           onClick={onLongPress}
           aria-label="Message actions"
-          className="absolute right-1 top-1 z-10 hidden size-6 items-center justify-center rounded-full bg-inherit text-muted opacity-0 shadow-[-6px_0_8px_var(--bubble-in)] transition-opacity group-hover:opacity-100 focus-visible:opacity-100 md:flex"
-          style={own ? { boxShadow: "-6px 0 8px var(--bubble-out)" } : undefined}
+          className="absolute right-1 top-1 z-10 hidden size-6 items-center justify-center rounded-full bg-inherit text-muted opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 md:flex"
         >
           <ChevronIcon />
         </button>
@@ -201,9 +210,10 @@ export function Bubble({
         {message.replyTo && (
           <button
             onClick={() => onQuoteTap(message.replyTo!.id)}
-            className="mb-1 block w-full overflow-hidden rounded-md border-l-4 bg-black/5 px-2 py-1.5 text-left text-[13px] leading-[17px] dark:bg-black/20"
-            style={{ borderColor: colourFor(message.replyTo.senderId ?? message.replyTo.senderName) }}
+            className="relative mb-1 block w-full overflow-hidden rounded-md bg-black/5 py-1.5 pl-3 pr-2 text-left text-[13px] leading-[17px] dark:bg-black/20"
           >
+            {/* The quoted sender's colour as a bar down the left. */}
+            <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: colourFor(message.replyTo.senderId ?? message.replyTo.senderName) }} />
             <span className="block font-medium" style={{ color: colourFor(message.replyTo.senderId ?? message.replyTo.senderName) }}>
               {nameOf(message.replyTo.senderId, message.replyTo.senderName)}
             </span>
@@ -222,9 +232,33 @@ export function Bubble({
                 </button>
               </>
             )}
-            <span className="float-right ml-2.5 mt-2 -mb-1.5">{meta}</span>
+            {/* With a JSON button below, the time goes under that instead. */}
+            {!hasViewer && <span className="float-right ml-2.5 mt-2 -mb-1.5">{meta}</span>}
           </p>
         )}
+        {json !== undefined && (
+          <button
+            onClick={() => !gestureConsumedClick.current && setViewingJson(true)}
+            className="mt-2 flex w-full min-w-44 items-center justify-center gap-1.5 rounded-lg bg-black/5 px-3 py-2 text-[14px] font-medium hover:bg-black/10 dark:bg-black/20 dark:hover:bg-black/30"
+          >
+            <span aria-hidden className="font-mono text-[13px] opacity-70">
+              {"{ }"}
+            </span>
+            View JSON
+          </button>
+        )}
+        {snippet && (
+          <button
+            onClick={() => !gestureConsumedClick.current && setViewingSnippet(true)}
+            className="mt-2 flex w-full min-w-44 items-center justify-center gap-1.5 rounded-lg bg-black/5 px-3 py-2 text-[14px] font-medium transition-colors hover:bg-black/10 dark:bg-black/20 dark:hover:bg-black/30"
+          >
+            <span aria-hidden className="font-mono text-[13px] opacity-70">
+              {snippet.kind === "markdown" ? "M↓" : "</>"}
+            </span>
+            {snippet.label}
+          </button>
+        )}
+        {hasViewer && <div className="mt-1.5 -mb-0.5 flex justify-end">{meta}</div>}
         {a && preview === "image" && (
           <div className="relative">
             {/* eslint-disable-next-line @next/next/no-img-element -- served by the LAN host, not optimisable by Next */}
@@ -334,12 +368,15 @@ export function Bubble({
         text={message.text}
         save={a && isAvailable(a) ? { url: downloadUrl, name: a.name } : undefined}
       />
+      {/* Outside the bubble: React passes a portal's events up through its parents, and the bubble's would start a long press. */}
+      {viewingJson && json !== undefined && <JsonViewer json={json} onClose={() => setViewingJson(false)} />}
+      {viewingSnippet && snippet && <SnippetViewer snippet={snippet} onClose={() => setViewingSnippet(false)} />}
     </div>
   );
 }
 
 const QUICK_ACTION =
-  "flex size-8 items-center justify-center rounded-full bg-panel/90 text-muted shadow-[0_1px_2px_rgba(11,20,26,.2)] hover:text-foreground";
+  "flex size-8 items-center justify-center rounded-full bg-panel/90 text-muted hover:text-foreground";
 
 /** Copy and Save, always beside the bubble; the press-and-hold sheet has every action. */
 function QuickActions({ text, save }: { text?: string; save?: { url: string; name: string } }) {

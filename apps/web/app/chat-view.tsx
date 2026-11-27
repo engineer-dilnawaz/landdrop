@@ -14,6 +14,7 @@ import {
   CameraIcon,
   CloseIcon,
   DropdownMenu,
+  FILLED_BUTTON,
   FileIcon,
   FolderIcon,
   ICON_BUTTON,
@@ -22,11 +23,11 @@ import {
   PinIcon,
   PlusIcon,
   QrIcon,
-  FILLED_BUTTON,
   SHEET_ITEM,
-  TickIcon,
   SendIcon,
   Sheet,
+  Spinner,
+  TickIcon,
   colourFor,
   formatBytes,
   formatDay,
@@ -74,6 +75,7 @@ export function ChatView({
   pinned,
   chatPinned,
   onTogglePinChat,
+  onRename,
 }: {
   chat: OpenChat;
   messages: Message[];
@@ -121,6 +123,8 @@ export function ChatView({
   /** This chat is pinned to the top of the list. */
   chatPinned: boolean;
   onTogglePinChat: () => void;
+  /** Names the shared chat; only that chat has it. */
+  onRename: () => void;
   /** Set while several messages are being picked: which are, and what can be done with them. */
   selection?: {
     ids: ReadonlySet<string>;
@@ -230,6 +234,7 @@ export function ChatView({
             ...(chat.kind === "everyone" ? [{ label: "Invite devices", onSelect: onInvite }] : []),
             ...(chat.kind === "group" ? [{ label: "Group info", onSelect: onGroupInfo }] : []),
             { label: chatPinned ? "Unpin chat" : "Pin chat to top", onSelect: onTogglePinChat },
+            ...(chat.kind === "everyone" ? [{ label: "Rename chat", onSelect: onRename }] : []),
             { label: "Close chat", onSelect: onBack },
             { label: chat.kind === "private" ? "Delete chat" : "Clear chat", onSelect: onClearChat, danger: true },
             ...(chat.kind === "group" ? [{ label: "Leave group", onSelect: onLeaveGroup, danger: true }] : []),
@@ -239,7 +244,7 @@ export function ChatView({
       )}
 
       {pinned && !selection && (
-        <div className="page-in z-10 flex shrink-0 items-center gap-1 border-b border-divider bg-bar px-3 py-1.5">
+        <div className="page-in z-10 flex shrink-0 items-center gap-1 bg-bar px-3 py-1.5">
           <button
             onClick={() => showMessage(pinned.id)}
             aria-label="Go to the pinned message"
@@ -262,7 +267,7 @@ export function ChatView({
       <div className="wallpaper flex min-h-0 flex-1 flex-col">
         <main ref={scrollerRef} className="flex-1 overflow-y-auto px-3 pb-2 pt-2 md:px-[7%]" aria-live="polite">
           <div ref={contentRef} className="mx-auto flex max-w-4xl flex-col">
-            <div className="page-in mx-auto mb-3 mt-2 flex w-full max-w-md items-start gap-3 rounded-xl border border-divider bg-panel/85 p-3 shadow-sm backdrop-blur">
+            <div className="page-in mx-auto mb-3 mt-2 flex w-full max-w-md items-start gap-3 rounded-xl bg-panel/85 p-3 backdrop-blur">
               <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
                 <LockIcon />
               </span>
@@ -288,7 +293,7 @@ export function ChatView({
               return (
                 <div key={m.id} className={`${startsRun ? "mt-3" : "mt-0.5"} ${i >= messages.length - 6 ? "message-in" : ""}`}>
                   {newDay && (
-                    <p className="mx-auto mb-3 mt-1 w-fit rounded-full border border-divider bg-panel/85 px-3 py-1 text-center text-[11px] font-medium tracking-wider text-muted uppercase shadow-sm backdrop-blur">
+                    <p className="mx-auto mb-3 mt-1 w-fit rounded-full bg-panel/85 px-3 py-1 text-center text-[11px] font-medium tracking-wider text-muted uppercase backdrop-blur">
                       {formatDay(m.createdAt)}
                     </p>
                   )}
@@ -297,8 +302,8 @@ export function ChatView({
                     <>
                       <span
                         aria-hidden
-                        className={`absolute left-1.5 top-1/2 z-10 flex size-5 -translate-y-1/2 items-center justify-center rounded-full border-2 ${
-                          selection.ids.has(m.id) ? "border-accent bg-accent text-white" : "border-muted"
+                        className={`absolute left-1.5 top-1/2 z-10 flex size-5 -translate-y-1/2 items-center justify-center rounded-full ${
+                          selection.ids.has(m.id) ? "bg-accent-fill text-white" : "bg-muted/35"
                         }`}
                       >
                         {selection.ids.has(m.id) && <TickIcon />}
@@ -365,9 +370,10 @@ export function ChatView({
           {replyTo && (
             <div className="flex items-center gap-2 rounded-lg bg-panel/60 p-1.5 md:mx-24">
               <div
-                className="min-w-0 flex-1 rounded-md border-l-4 bg-field px-3 py-1.5 text-[13px] leading-[17px]"
-                style={{ borderColor: colourFor(replyTo.senderId ?? replyTo.senderName) }}
+                className="relative min-w-0 flex-1 overflow-hidden rounded-md bg-field py-1.5 pl-4 pr-3 text-[13px] leading-[17px]"
               >
+                {/* The sender's colour as a bar down the left. */}
+                <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: colourFor(replyTo.senderId ?? replyTo.senderName) }} />
                 <p className="font-medium" style={{ color: colourFor(replyTo.senderId ?? replyTo.senderName) }}>
                   Replying to {replyTo.senderId === selfId ? "yourself" : nameOf(replyTo.senderId, replyTo.senderName)}
                 </p>
@@ -381,9 +387,9 @@ export function ChatView({
           {(files.length > 0 || composer.readingFolders.length > 0) && (
             <ul className="flex flex-wrap gap-1.5 md:mx-24">
               {composer.readingFolders.map((r) => (
-                <li key={r.id} className="flex min-w-60 flex-col gap-1.5 rounded-lg bg-panel py-2 pl-3 pr-1.5 text-[13px] shadow-sm" aria-live="polite">
+                <li key={r.id} className="flex min-w-60 flex-col gap-1.5 rounded-lg bg-panel py-2 pl-3 pr-1.5 text-[13px]" aria-live="polite">
                   <div className="flex items-center gap-2">
-                    <span className="size-4 shrink-0 animate-spin rounded-full border-2 border-[#ffbc38] border-t-transparent" aria-hidden />
+                    <Spinner size={16} className="text-[#ffbc38]" />
                     <span className="max-w-44 truncate">{r.name}</span>
                     <span className="flex-1 text-muted">
                       {r.read.toLocaleString()} of {r.found.toLocaleString()} files
@@ -404,7 +410,7 @@ export function ChatView({
                 </li>
               ))}
               {files.map((f, i) => (
-                <li key={`${f.name}-${i}`} className="flex items-center gap-2 rounded-lg bg-panel py-1.5 pl-3 pr-1.5 text-[13px] shadow-sm">
+                <li key={`${f.name}-${i}`} className="flex items-center gap-2 rounded-lg bg-panel py-1.5 pl-3 pr-1.5 text-[13px]">
                   {f instanceof FolderArchive ? (
                     <span className="text-[#ffbc38]">
                       <FolderIcon size={16} />
@@ -452,7 +458,7 @@ export function ChatView({
                   onClick={() => composer.send()}
                   disabled={!text.trim() && !files.length}
                   aria-label="Send"
-                  className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-accent text-white disabled:opacity-40"
+                  className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-accent-fill text-white disabled:opacity-40"
                 >
                   <SendIcon />
                 </button>
@@ -530,8 +536,8 @@ function FolderSheet({
             for (const entry of entries) if (entry?.isDirectory) onDropFolder(entry as FileSystemDirectoryEntry);
             onClose();
           }}
-          className={`mt-5 flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-6 py-8 text-center transition-colors pointer-coarse:hidden ${
-            over ? "border-accent bg-accent/10" : "border-divider"
+          className={`mt-5 flex flex-col items-center gap-2 rounded-2xl px-6 py-8 text-center transition-colors pointer-coarse:hidden ${
+            over ? "bg-accent/10" : "bg-field"
           }`}
         >
           <span className="flex size-14 items-center justify-center rounded-2xl bg-[#ffbc38] text-white">

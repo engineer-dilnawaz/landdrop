@@ -45,6 +45,8 @@ import { MediaViewer, type MediaItem } from "./media-viewer";
 import { MessageInfoSheet } from "./message-info";
 import { receiptOf, recipientsOf, type ReceiptContext, type Reads } from "./receipts";
 import { BottomTabs, Rail, type Panel } from "./nav";
+import { setLoungeName, useLoungeName } from "./lounge";
+import { RenameChatSheet } from "./rename-chat";
 import { MAX_PINNED_CHATS, pinChat, pinMessage, unpinChat, unpinMessage, usePins } from "./pins";
 import { ConfirmRemoveSheet, ForwardSheet } from "./selection";
 import { Settings, SettingsDetail, type SettingsPage } from "./settings";
@@ -302,6 +304,9 @@ export default function LanDrop() {
   const [chatMenu, setChatMenu] = useState<ChatSummary>();
   /** What's pinned on this device: up to two chats at the top of the list, and one message per chat. */
   const pins = usePins();
+  /** What the chat everyone shares is called here; the user can rename it. */
+  const loungeName = useLoungeName();
+  const [renamingLounge, setRenamingLounge] = useState(false);
   /** Picking devices for a new group, or to add to the open group. */
   const [groupPicker, setGroupPicker] = useState<"create" | "add">();
   const [groupInfo, setGroupInfo] = useState(false);
@@ -778,7 +783,7 @@ export default function LanDrop() {
       return {
         id: chatId,
         chatIds: [chatId],
-        title: "LANDrop group",
+        title: loungeName,
         kind: "everyone",
         online: false,
         subtitle: others.length ? [...others.map((d) => d.name), "You"].join(", ") : "Only you are online",
@@ -828,7 +833,7 @@ export default function LanDrop() {
   // opened from the device list shows while it's open, and drops out again if it's left without a message.
   const chats: ChatSummary[] = selfId
     ? [
-        summarize(GROUP_CHAT_ID, "LANDrop group", "everyone", false),
+        summarize(GROUP_CHAT_ID, loungeName, "everyone", false),
         ...Object.values(state.groups).map((g) => summarize(g.id, g.name, "group", false)),
         ...people.map((p) => summarize(p.id, p.name, "private", p.online, p.chatIds)),
       ]
@@ -976,7 +981,6 @@ export default function LanDrop() {
                 goTo("chats");
                 openChat(id);
               }}
-              onBack={() => goTo("chats")}
               onInvite={() => setInviting(true)}
             />
           ) : panel === "settings" ? (
@@ -1059,6 +1063,7 @@ export default function LanDrop() {
               onReply={setReplyTo}
               onLongPress={setSelected}
               chatPinned={pins.chats.includes(activeChat.id)}
+              onRename={() => setRenamingLounge(true)}
               onTogglePinChat={() => togglePinChat(activeChat.id)}
               pinned={
                 pinnedMessage && {
@@ -1088,7 +1093,7 @@ export default function LanDrop() {
             />
           ) : (
             // WhatsApp Web's welcome pane while no chat is open.
-            <div className="relative flex flex-1 flex-col items-center justify-center gap-4 border-b-[6px] border-accent bg-bar px-10 text-center">
+            <div className="relative flex flex-1 flex-col items-center justify-center gap-4 bg-bar px-10 text-center">
               <span className="text-accent">
                 <Logo size={96} animated />
               </span>
@@ -1107,7 +1112,7 @@ export default function LanDrop() {
         {state.notice && (
           <div
             role="alert"
-            className="notice-in fixed bottom-24 left-1/2 z-30 flex w-[min(92vw,30rem)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg border border-divider bg-panel py-3 pl-5 pr-2 text-[14px] text-foreground shadow-lg md:bottom-6"
+            className="notice-in fixed bottom-24 left-1/2 z-30 flex w-[min(92vw,30rem)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg bg-panel py-3 pl-5 pr-2 text-[14px] text-foreground md:bottom-6"
           >
             <span className="pt-0.5">{state.notice}</span>
             <button
@@ -1145,7 +1150,7 @@ export default function LanDrop() {
         )}
 
         {dragging && (
-          <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent bg-panel/90 backdrop-blur-sm">
+          <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-2xl bg-panel/90 backdrop-blur-sm">
             <div className="flex flex-col items-center gap-2 text-accent">
               <PlusIcon />
               <p className="text-[17px] font-semibold">Drop to attach</p>
@@ -1164,6 +1169,16 @@ export default function LanDrop() {
         )}
         {inviting && <JoinDialog networkAddresses={fetchNetworkAddresses} onClose={() => setInviting(false)} />}
 
+        {renamingLounge && (
+          <RenameChatSheet
+            current={loungeName}
+            onSave={(name) => {
+              setLoungeName(name);
+              setRenamingLounge(false);
+            }}
+            onClose={() => setRenamingLounge(false)}
+          />
+        )}
         {chatMenu && (
           <ChatActionsSheet
             title={chatMenu.title}
@@ -1173,6 +1188,14 @@ export default function LanDrop() {
               togglePinChat(chatMenu.id);
               setChatMenu(undefined);
             }}
+            onRename={
+              chatMenu.kind === "everyone"
+                ? () => {
+                    setChatMenu(undefined);
+                    setRenamingLounge(true);
+                  }
+                : undefined
+            }
             onDelete={() => {
               setHeldChat(chatMenu);
               setChatMenu(undefined);

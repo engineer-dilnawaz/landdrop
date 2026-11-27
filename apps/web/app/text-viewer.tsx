@@ -47,7 +47,7 @@ type Loaded = { text: string; truncated: boolean } | { error: string };
 const isMarkdown = (name: string) => /\.(md|markdown)$/i.test(name);
 
 /** HTML the worker made from `request`, once it's ready; undefined until then, or with no request. */
-function useWorkerHtml(request: HighlightRequest | undefined): string | undefined {
+export function useWorkerHtml(request: HighlightRequest | undefined): string | undefined {
   const [done, setDone] = useState<{ request: HighlightRequest; html: string }>();
   useEffect(() => {
     if (!request) return;
@@ -78,7 +78,7 @@ function resolvePath(from: string, link: string): string | undefined {
  * Markdown's HTML, made safe: no scripts, frames, forms or event handlers. Pictures from inside the
  * folder show; web links open in a new tab; other links (to files in the folder) are left as text.
  */
-function cleanMarkdown(html: string, path: string, fileUrl: (path: string, preview?: boolean) => string): string {
+export function cleanMarkdown(html: string, path: string, fileUrl?: (path: string, preview?: boolean) => string): string {
   const hook = (node: Element) => {
     if (node.tagName === "A") {
       const href = node.getAttribute("href") ?? "";
@@ -90,8 +90,9 @@ function cleanMarkdown(html: string, path: string, fileUrl: (path: string, previ
     if (node.tagName === "IMG") {
       const src = node.getAttribute("src") ?? "";
       if (!/^(https?:|data:image\/)/i.test(src)) {
-        const inFolder = resolvePath(path, src);
-        if (inFolder) node.setAttribute("src", fileUrl(inFolder, true));
+        // A pasted message has no folder to take pictures from, so only web and inline pictures show.
+        const inFolder = fileUrl && resolvePath(path, src);
+        if (inFolder && fileUrl) node.setAttribute("src", fileUrl(inFolder, true));
         else node.removeAttribute("src");
       }
       node.setAttribute("loading", "lazy");
@@ -163,7 +164,7 @@ export function TextViewer({ name, path, title, size, src, download, fileUrl, on
 
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label={name} className="fixed inset-0 z-50 flex flex-col bg-panel text-foreground">
-      <header className="flex items-center gap-1 border-b border-divider bg-bar px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:px-6 md:pb-3 md:pt-3">
+      <header className="flex items-center gap-1 bg-bar px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:px-6 md:pb-3 md:pt-3">
         <button onClick={onClose} className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-hover" aria-label="Back to the folder" title="Back">
           <BackIcon />
         </button>
@@ -181,7 +182,7 @@ export function TextViewer({ name, path, title, size, src, download, fileUrl, on
                 key={label}
                 aria-pressed={(label === "Code") === showCode}
                 onClick={() => setShowCode(label === "Code")}
-                className={`rounded-full px-3 py-1.5 ${(label === "Code") === showCode ? "bg-panel shadow-sm" : "text-muted"}`}
+                className={`rounded-full px-3 py-1.5 ${(label === "Code") === showCode ? "bg-panel" : "text-muted"}`}
               >
                 {label}
               </button>
@@ -214,7 +215,7 @@ export function TextViewer({ name, path, title, size, src, download, fileUrl, on
         </a>
       </header>
       {truncated && (
-        <p className="border-b border-divider bg-field px-5 py-2 text-[13px] text-muted">
+        <p className="bg-field px-5 py-2 text-[13px] text-muted">
           Showing the first {formatBytes(MAX_TEXT_BYTES)} of {formatBytes(size)}. Save it to see the whole file.
         </p>
       )}
@@ -233,7 +234,7 @@ export function TextViewer({ name, path, title, size, src, download, fileUrl, on
         ) : (
           // Two columns of one <pre> each: cheap to draw even for tens of thousands of lines.
           <div className="flex min-w-max font-mono text-[13px] leading-[1.6]">
-            <pre aria-hidden className="sticky left-0 select-none border-r border-divider bg-panel px-3 py-3 text-right text-muted">
+            <pre aria-hidden className="sticky left-0 select-none bg-panel px-3 py-3 text-right text-muted">
               {Array.from({ length: lines }, (_, i) => i + 1).join("\n")}
             </pre>
             {html !== undefined ? (

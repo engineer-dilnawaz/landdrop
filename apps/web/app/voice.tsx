@@ -112,7 +112,7 @@ export function VoicePlayer({
       <button
         onClick={() => (playing ? audio.current?.pause() : void audio.current?.play())}
         aria-label={playing ? "Pause" : "Play voice message"}
-        className={`flex size-10 shrink-0 items-center justify-center rounded-full ${own ? "bg-black/10 dark:bg-white/15" : "bg-accent text-white"}`}
+        className={`flex size-10 shrink-0 items-center justify-center rounded-full ${own ? "bg-black/10 dark:bg-white/15" : "bg-accent-fill text-white"}`}
       >
         {playing ? <PauseIcon /> : <PlayIcon />}
       </button>

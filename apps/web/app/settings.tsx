@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { MAX_DEVICE_NAME_LENGTH } from "@landrop/protocol";
-import { AVATARS, AvatarArt, avatarPicture, defaultAvatar, type AvatarId } from "./avatars";
-import { Avatar, BackIcon, BellIcon, ChatsIcon, DoubleTickIcon, FILLED_BUTTON, ICON_BUTTON, PeopleIcon, SunIcon, TickIcon } from "./ui";
+import { CropSheet } from "./crop-sheet";
+import { AVATARS, AvatarArt, avatarPicture,  type AvatarId } from "./avatars";
+import { Avatar, BackIcon, BellIcon, CameraIcon, ChatsIcon, DoubleTickIcon, FILLED_BUTTON, ICON_BUTTON, ImageIcon, PeopleIcon, Sheet, SunIcon, TickIcon, UserIcon } from "./ui";
 
 export type Theme = "system" | "light" | "dark";
 
@@ -140,13 +141,13 @@ export function Settings({
           onClick={() => onPage("profile")}
           className={`flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-hover ${page === "profile" ? "md:bg-hover" : ""}`}
         >
-          <Avatar name={selfName ?? "?"} seed={selfId} size="profile" />
+          <Avatar name={selfName ?? "?"} seed={selfId} size="xl" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[19px]">{selfName ?? "Joining…"}</span>
             <span className="block text-[14px] text-muted">Your profile</span>
           </span>
         </button>
-        <div className="border-t border-divider pt-1">
+        <div className="pt-1">
           {PAGES.filter((p) => p.id !== "profile" && (p.id !== "notifications" || inHostApp())).map((p) => row(p.id, p.label, p.hint, p.icon))}
         </div>
       </div>
@@ -184,7 +185,7 @@ export function SettingsDetail({
       </header>
       <div className="flex-1 overflow-y-auto">
         <div key={page} className="page-in mx-auto w-full max-w-xl">
-          {page === "profile" && <ProfilePage key={selfName} selfName={selfName} selfId={selfId} onRename={onRename} onPhoto={onPhoto} />}
+          {page === "profile" && <ProfilePage selfName={selfName} selfId={selfId} onRename={onRename} onPhoto={onPhoto} />}
           {page === "appearance" && <AppearancePage />}
           {page === "chats" && <ChatLooks />}
           {page === "notifications" && <HostNotifications />}
@@ -209,8 +210,8 @@ function AppearancePage() {
             role="radio"
             aria-checked={theme === id}
             onClick={() => setTheme(id)}
-            className={`group relative flex flex-col gap-2 rounded-xl border p-2 text-left transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-md active:scale-[0.97] motion-reduce:transition-none ${
-              theme === id ? "border-accent shadow-sm ring-2 ring-accent/30" : "border-divider hover:border-muted/50"
+            className={`group relative flex flex-col gap-2 rounded-xl p-2 text-left transition-all duration-300 ease-out hover:-translate-y-0.5 active:scale-[0.97] motion-reduce:transition-none ${
+              theme === id ? "bg-chip-on" : "bg-field"
             }`}
           >
             <ThemePreview mode={id} />
@@ -218,8 +219,8 @@ function AppearancePage() {
               {label}
               <span
                 aria-hidden
-                className={`flex size-5 items-center justify-center rounded-full border transition-colors duration-300 ${
-                  theme === id ? "border-accent bg-accent text-white" : "border-divider"
+                className={`flex size-5 items-center justify-center rounded-full transition-colors duration-300 ${
+                  theme === id ? "bg-accent-fill text-white" : "bg-muted/35"
                 }`}
               >
                 {theme === id && (
@@ -241,13 +242,13 @@ function ThemePreview({ mode }: { mode: Theme }) {
   const scene = (dark: boolean) => (
     <div className={`absolute inset-0 flex flex-col gap-1.5 p-2 ${dark ? "bg-[#09090b]" : "bg-[#fafafa]"}`}>
       <span className={`h-1.5 w-8 rounded-full ${dark ? "bg-[#27272a]" : "bg-[#e4e4e7]"}`} />
-      <span className={`h-3 w-14 rounded-md ${dark ? "bg-[#18181b]" : "bg-white shadow-sm"}`} />
+      <span className={`h-3 w-14 rounded-md ${dark ? "bg-[#18181b]" : "bg-white"}`} />
       <span className={`ml-auto h-3 w-10 rounded-md ${dark ? "bg-[#065f46]" : "bg-[#d1fae5]"}`} />
-      <span className={`h-3 w-12 rounded-md ${dark ? "bg-[#18181b]" : "bg-white shadow-sm"}`} />
+      <span className={`h-3 w-12 rounded-md ${dark ? "bg-[#18181b]" : "bg-white"}`} />
     </div>
   );
   return (
-    <div aria-hidden className="relative h-20 overflow-hidden rounded-lg border border-divider">
+    <div aria-hidden className="relative h-20 overflow-hidden rounded-lg">
       {scene(mode === "dark")}
       {mode === "system" && <div className="absolute inset-0 [clip-path:polygon(100%_0,100%_100%,0_100%)]">{scene(true)}</div>}
     </div>
@@ -255,6 +256,9 @@ function ThemePreview({ mode }: { mode: Theme }) {
 }
 
 const AVATAR_KEY = "landrop.avatar";
+/** How many avatars show in the quick row; the rest are behind the "+N" tile. */
+const QUICK_AVATARS = 6;
+
 function readAvatar(): AvatarId | undefined {
   try {
     const saved = localStorage.getItem(AVATAR_KEY);
@@ -264,7 +268,16 @@ function readAvatar(): AvatarId | undefined {
   }
 }
 
-/** Your avatar and name: pick one of the set on top, change your name below. */
+function rememberAvatar(id: AvatarId | undefined) {
+  try {
+    if (id) localStorage.setItem(AVATAR_KEY, id);
+    else localStorage.removeItem(AVATAR_KEY);
+  } catch {
+    // Private browsing: the avatar still applies until reload.
+  }
+}
+
+/** Your picture and name: pick an avatar or your own photo on top, change your name below. */
 function ProfilePage({
   selfName,
   selfId,
@@ -277,82 +290,205 @@ function ProfilePage({
   onPhoto: (photo: Blob | undefined) => void;
 }) {
   const [chosen, setChosen] = useState<AvatarId | undefined>(readAvatar);
+  /** A photo picked here, shown at once while it uploads. */
+  const [photo, setPhoto] = useState<string>();
   const [error, setError] = useState<string>();
-  const [name, setName] = useState(selfName ?? "");
-  const current = chosen ?? defaultAvatar(selfId ?? selfName ?? "");
-  const trimmed = name.trim();
-  async function choose(id: AvatarId) {
+  const [browsing, setBrowsing] = useState(false);
+  const [cropping, setCropping] = useState<File>();
+  const file = useRef<HTMLInputElement>(null);
+  useEffect(() => () => (photo ? URL.revokeObjectURL(photo) : undefined), [photo]);
+
+  async function chooseAvatar(id: AvatarId) {
+    setBrowsing(false);
+    setPhoto(undefined);
     setChosen(id);
     setError(undefined);
-    try {
-      localStorage.setItem(AVATAR_KEY, id);
-    } catch {
-      // Private browsing: the avatar still applies until reload.
-    }
+    rememberAvatar(id);
     try {
       onPhoto(await avatarPicture(id));
     } catch {
-      setError("That avatar couldn't be set. Try again.");
+      setError("That avatar couldn’t be set. Try again.");
     }
   }
+
+  function usePhoto(square: Blob) {
+    setCropping(undefined);
+    setPhoto(URL.createObjectURL(square));
+    setChosen(undefined);
+    rememberAvatar(undefined);
+    onPhoto(square);
+  }
+
+  // The quick row shows the first few; one chosen from further down takes the last place, so it's always visible.
+  const quick: (typeof AVATARS)[number][] = AVATARS.slice(0, QUICK_AVATARS);
+  const picked = AVATARS.find((a) => a.id === chosen);
+  if (picked && !quick.includes(picked)) quick[QUICK_AVATARS - 1] = picked;
+
   return (
     <div className="flex flex-col gap-8 px-5 py-6">
-      <section aria-labelledby="avatar-title" className="flex flex-col items-center gap-5">
-        <div key={current} className="pop-in overflow-hidden rounded-full shadow-md ring-4 ring-panel">
-          <AvatarArt id={current} className="size-28" />
-        </div>
-        <div className="w-full">
-          <h3 id="avatar-title" className="text-[15px] font-medium">
-            Avatar
-          </h3>
-          <p className="mt-1 text-[13px] text-muted">Everyone on this Wi-Fi sees the one you pick.</p>
-          <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-6" role="radiogroup" aria-labelledby="avatar-title">
-            {AVATARS.map((a) => (
-              <button
-                key={a.id}
-                role="radio"
-                aria-checked={current === a.id}
-                aria-label={a.label}
-                title={a.label}
-                onClick={() => void choose(a.id)}
-                className={`relative aspect-square overflow-hidden rounded-full transition-all duration-300 hover:scale-105 active:scale-95 motion-reduce:transition-none ${
-                  current === a.id ? "ring-2 ring-accent ring-offset-2 ring-offset-panel" : "opacity-80 hover:opacity-100"
-                }`}
-              >
-                <AvatarArt id={a.id} className="size-full" />
-              </button>
-            ))}
+      <section aria-label="Your picture" className="flex flex-col items-center">
+        <div className="relative">
+          <div key={photo ?? chosen ?? "current"} className="pop-in flex size-28 items-center justify-center overflow-hidden rounded-full">
+            {photo ? (
+              // eslint-disable-next-line @next/next/no-img-element -- a local preview of the picked photo
+              <img src={photo} alt="" className="size-full object-cover" />
+            ) : picked ? (
+              <AvatarArt id={picked.id} className="size-full" />
+            ) : (
+              <Avatar name={selfName ?? "?"} seed={selfId} size="profile" />
+            )}
           </div>
-          {error && <p className="mt-3 text-[13px] text-danger">{error}</p>}
-        </div>
-      </section>
-
-      <form
-        aria-labelledby="name-title"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (trimmed && trimmed !== selfName) onRename(trimmed);
-        }}
-      >
-        <h3 id="name-title" className="text-[15px] font-medium">
-          Name
-        </h3>
-        <p className="mt-1 text-[13px] text-muted">How you appear to the other devices in chats.</p>
-        <div className="mt-4 flex gap-2">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={MAX_DEVICE_NAME_LENGTH}
-            aria-labelledby="name-title"
-            placeholder="Your name"
-            className="h-10 min-w-0 flex-1 rounded-lg border border-divider bg-panel px-3 text-[15px] outline-none transition-shadow placeholder:text-muted focus:ring-2 focus:ring-accent/40"
-          />
-          <button type="submit" disabled={!trimmed || trimmed === selfName} className={`${FILLED_BUTTON} !rounded-lg !py-0`}>
-            Save
+          <button
+            onClick={() => file.current?.click()}
+            aria-label="Choose your own photo"
+            title="Choose your own photo"
+            className="absolute -bottom-1 -right-1 flex size-10 items-center justify-center rounded-full bg-accent-fill text-white transition-transform hover:scale-110 active:scale-95"
+          >
+            <CameraIcon size={20} />
           </button>
         </div>
-      </form>
+        <p className="mt-4 max-w-xs text-center text-[14px] text-muted">Everyone on this Wi-Fi sees this next to your name.</p>
+      </section>
+
+      <section aria-labelledby="avatar-title">
+        <div className="flex items-baseline justify-between">
+          <h3 id="avatar-title" className="text-[15px] font-medium">
+            Pick an avatar
+          </h3>
+          <button onClick={() => setBrowsing(true)} className="rounded-lg px-2 py-1 text-[13px] font-medium text-chip-on-ink transition-colors hover:bg-hover">
+            See all {AVATARS.length}
+          </button>
+        </div>
+        <div className="mt-3 flex items-center gap-1.5" role="radiogroup" aria-labelledby="avatar-title">
+          {quick.map((a) => (
+            <button
+              key={a.id}
+              role="radio"
+              aria-checked={chosen === a.id}
+              aria-label={a.label}
+              title={a.label}
+              onClick={() => void chooseAvatar(a.id)}
+              className={`aspect-square max-w-14 flex-1 rounded-2xl p-1 transition-all duration-300 hover:scale-105 active:scale-95 motion-reduce:transition-none ${chosen === a.id ? "bg-chip-on" : "hover:bg-hover"}`}
+            >
+              <AvatarArt id={a.id} className="size-full rounded-full" />
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={() => file.current?.click()}
+          className="mt-4 flex w-full items-center gap-3.5 rounded-2xl bg-field px-4 py-3 text-left transition-all hover:bg-hover active:scale-[0.99]"
+        >
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-panel">
+            <ImageIcon size={20} />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[15px] font-medium">Use your own photo</span>
+            <span className="block text-[13px] text-muted">JPEG or PNG. It’s cropped to a square.</span>
+          </span>
+        </button>
+        <input
+          ref={file}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const picked = e.target.files?.[0];
+            e.target.value = "";
+            if (picked) setCropping(picked);
+          }}
+        />
+        {error && <p className="mt-3 text-[13px] text-danger">{error}</p>}
+      </section>
+
+      <NameForm selfName={selfName} onRename={onRename} />
+
+      {cropping && <CropSheet file={cropping} onDone={usePhoto} onClose={() => setCropping(undefined)} />}
+      {browsing && <AvatarSheet chosen={chosen} onPick={(id) => void chooseAvatar(id)} onClose={() => setBrowsing(false)} />}
     </div>
+  );
+}
+
+/** Every avatar, to pick from. A centred modal on computers, a bottom sheet on phones. */
+function AvatarSheet({ chosen, onPick, onClose }: { chosen?: AvatarId; onPick: (id: AvatarId) => void; onClose: () => void }) {
+  return (
+    <Sheet labelledBy="avatars-title" onClose={onClose}>
+      <h2 id="avatars-title" className="px-6 pb-3 pt-1 text-[20px] font-semibold tracking-tight">
+        Pick an avatar
+      </h2>
+      <div className="grid grid-cols-4 gap-1 px-3 pb-2 sm:grid-cols-5" role="radiogroup" aria-labelledby="avatars-title">
+        {AVATARS.map((a) => (
+          <button
+            key={a.id}
+            role="radio"
+            aria-checked={chosen === a.id}
+            onClick={() => onPick(a.id)}
+            className={`flex flex-col items-center gap-1.5 rounded-2xl p-2 transition-all duration-200 hover:scale-105 active:scale-95 ${chosen === a.id ? "bg-chip-on" : "hover:bg-hover"}`}
+          >
+            <AvatarArt id={a.id} className="size-14 rounded-full" />
+            <span className="text-[12px] text-muted">{a.label}</span>
+          </button>
+        ))}
+      </div>
+    </Sheet>
+  );
+}
+
+/** Your display name: what the other devices see next to your messages. */
+function NameForm({ selfName, onRename }: { selfName?: string; onRename: (name: string) => void }) {
+  // What's typed; until something is, the saved name shows.
+  const [typed, setTyped] = useState<string>();
+  const [saved, setSaved] = useState(false);
+  const value = typed ?? selfName ?? "";
+  const trimmed = value.trim();
+  const changed = !!trimmed && trimmed !== selfName;
+  return (
+    <form
+      aria-labelledby="name-title"
+      className="rounded-3xl bg-field p-5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!changed) return;
+        onRename(trimmed);
+        setTyped(undefined);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2200);
+      }}
+    >
+      <h3 id="name-title" className="text-[15px] font-medium">
+        Display name
+      </h3>
+      <p className="mt-0.5 text-[13px] text-muted">Shown next to your messages and in the device list.</p>
+      <div className="relative mt-4">
+        <span aria-hidden className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted">
+          <UserIcon size={20} />
+        </span>
+        <input
+          value={value}
+          onChange={(e) => {
+            setTyped(e.target.value);
+            setSaved(false);
+          }}
+          maxLength={MAX_DEVICE_NAME_LENGTH}
+          aria-labelledby="name-title"
+          placeholder="Your name"
+          className="h-12 w-full rounded-2xl bg-panel pl-11 pr-14 text-[16px] outline-none transition-colors placeholder:text-muted focus:bg-chip-on"
+        />
+        <span aria-hidden className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-[12px] tabular-nums text-muted">
+          {trimmed.length}/{MAX_DEVICE_NAME_LENGTH}
+        </span>
+      </div>
+      <div className="mt-4 flex items-center justify-end gap-3">
+        {saved && (
+          <span role="status" className="pop-in flex items-center gap-1.5 text-[13px] font-medium text-chip-on-ink">
+            <TickIcon /> Saved
+          </span>
+        )}
+        <button type="submit" disabled={!changed} className={FILLED_BUTTON}>
+          Save name
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -379,7 +515,7 @@ function Segmented<T extends string>({
     >
       <span
         aria-hidden
-        className="absolute inset-y-1 left-1 rounded-lg bg-panel shadow-[0_1px_2px_rgba(11,20,26,.15)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
+        className="absolute inset-y-1 left-1 rounded-lg bg-panel transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
         style={{ width: `calc((100% - 0.5rem) / ${options.length})`, transform: `translateX(${index * 100}%)` }}
       />
       {options.map(([id, text]) => (
@@ -409,7 +545,7 @@ function SwitchRow({ label, hint, checked, disabled, onChange }: { label: string
       <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" />
       <span
         aria-hidden
-        className="relative h-6 w-10 shrink-0 rounded-full bg-field transition-colors peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent/50 after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4"
+        className="relative h-6 w-10 shrink-0 rounded-full bg-field transition-colors peer-checked:bg-accent after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"
       />
     </label>
   );
@@ -475,11 +611,11 @@ function ChatLooks() {
 
       {/* The real bubble and wallpaper styles, so the preview is exactly what chats will look like. */}
       <div aria-hidden className="wallpaper mt-3 flex flex-col gap-1 overflow-hidden rounded-xl px-4 py-4">
-        <div className="relative ml-2 w-fit max-w-[80%] rounded-(--bubble-radius) border border-divider bg-bubble-in px-3 pt-2 pb-2 text-(length:--chat-text) leading-(--chat-leading) shadow-sm">
+        <div className="relative ml-2 w-fit max-w-[80%] rounded-(--bubble-radius) bg-bubble-in px-3 pt-2 pb-2 text-(length:--chat-text) leading-(--chat-leading)">
           Did the photos come through? 📸
           <span className="float-right mt-2 -mb-1.5 ml-2.5 text-[11px] leading-4 opacity-60">9:41</span>
         </div>
-        <div className="relative mt-2 mr-2 w-fit max-w-[80%] self-end rounded-(--bubble-radius) border border-transparent bg-bubble-out px-3 pt-2 pb-2 text-(length:--chat-text) leading-(--chat-leading) text-bubble-out-ink shadow-sm">
+        <div className="relative mt-2 mr-2 w-fit max-w-[80%] self-end rounded-(--bubble-radius) bg-bubble-out px-3 pt-2 pb-2 text-(length:--chat-text) leading-(--chat-leading) text-bubble-out-ink">
           All of them, thanks!
           <span className="float-right mt-2 -mb-1.5 ml-2.5 inline-flex items-center gap-1 text-[11px] leading-4">
             <span className="opacity-60">9:42</span>
@@ -488,7 +624,7 @@ function ChatLooks() {
             </span>
           </span>
         </div>
-        <div className="relative mr-2 w-fit max-w-[80%] self-end rounded-(--bubble-radius) border border-transparent bg-bubble-out px-3 pt-2 pb-2 text-(length:--chat-text) leading-(--chat-leading) text-bubble-out-ink shadow-sm">
+        <div className="relative mr-2 w-fit max-w-[80%] self-end rounded-(--bubble-radius) bg-bubble-out px-3 pt-2 pb-2 text-(length:--chat-text) leading-(--chat-leading) text-bubble-out-ink">
           See you at 5
           <span className="float-right mt-2 -mb-1.5 ml-2.5 inline-flex items-center gap-1 text-[11px] leading-4 opacity-60">
             9:42
@@ -509,8 +645,8 @@ function ChatLooks() {
             aria-label={id[0].toUpperCase() + id.slice(1)}
             title={id[0].toUpperCase() + id.slice(1)}
             onClick={() => setAccent(id)}
-            className={`flex aspect-square items-center justify-center rounded-full ring-offset-2 ring-offset-panel transition ${
-              accent === id ? "ring-2 ring-foreground/70" : "hover:scale-105"
+            className={`flex aspect-square items-center justify-center rounded-full transition ${
+              accent === id ? "" : "hover:scale-105"
             }`}
             style={{ background: SWATCHES[id] }}
           >
@@ -550,8 +686,8 @@ function ChatLooks() {
             onClick={() => setWall(id)}
             className={`flex flex-col items-center gap-1.5 rounded-xl p-1.5 text-[13px] ${wall === id ? "bg-field font-medium" : "text-muted hover:bg-hover"}`}
           >
-            <span className={`block h-14 w-full overflow-hidden rounded-lg border-2 ${wall === id ? "border-accent" : "border-divider"}`}>
-              <span className={`wallpaper wall-${id} block size-full`} />
+            <span className="block h-14 w-full overflow-hidden rounded-lg">
+              <span className={`wallpaper wall-tile wall-${id} block size-full`} />
             </span>
             {label}
           </button>

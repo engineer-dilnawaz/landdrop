@@ -5,7 +5,7 @@ const LINKS = [
   { href: "#install", label: "Install" },
   { href: "#features", label: "How to use" },
   { href: "#help", label: "Help" },
-  { href: "https://github.com/engineer-dilnawaz/landdrop", label: "GitHub" },
+  { href: "https://github.com/engineer-dilnawaz/landrop", label: "GitHub" },
 ];
 
 export function SiteNav() {

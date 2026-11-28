@@ -7,11 +7,11 @@
 **Chat and share files of any size with every device on your Wi-Fi.**
 No cloud, no accounts, no app to install on phones.
 
-[![Latest release](https://img.shields.io/github/v/release/engineer-dilnawaz/landdrop?label=release)](https://github.com/engineer-dilnawaz/landdrop/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/engineer-dilnawaz/landrop?label=release)](https://github.com/engineer-dilnawaz/landrop/releases/latest)
 ![Platform](https://img.shields.io/badge/host-macOS%20%7C%20Windows-black)
 ![Clients](https://img.shields.io/badge/clients-any%20web%20browser-blue)
 
-[**Download for Mac (Apple silicon)**](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg) · [Mac (Intel)](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-x64.dmg) · [Windows](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-win-x64.exe) · [Website](https://landdrop.vercel.app) · [Releases](https://github.com/engineer-dilnawaz/landdrop/releases)
+[**Download for Mac (Apple silicon)**](https://github.com/engineer-dilnawaz/landrop/releases/latest/download/LANDrop-mac-arm64.dmg) · [Mac (Intel)](https://github.com/engineer-dilnawaz/landrop/releases/latest/download/LANDrop-mac-x64.dmg) · [Windows](https://github.com/engineer-dilnawaz/landrop/releases/latest/download/LANDrop-win-x64.exe) · [Website](https://landdrop.vercel.app) · [Releases](https://github.com/engineer-dilnawaz/landrop/releases)
 
 </div>
 
@@ -41,14 +41,14 @@ Moving a video from an Android phone to a Mac, or a document from a Windows lapt
 
 ### 1. Install on your Mac
 
-1. Download [`LANDrop-mac-arm64.dmg`](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-arm64.dmg) (Apple silicon: M1 and newer) or [`LANDrop-mac-x64.dmg`](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-mac-x64.dmg) (Intel Macs).
+1. Download [`LANDrop-mac-arm64.dmg`](https://github.com/engineer-dilnawaz/landrop/releases/latest/download/LANDrop-mac-arm64.dmg) (Apple silicon: M1 and newer) or [`LANDrop-mac-x64.dmg`](https://github.com/engineer-dilnawaz/landrop/releases/latest/download/LANDrop-mac-x64.dmg) (Intel Macs).
 2. Open the dmg and drag **LANDrop** into **Applications**.
 3. Open LANDrop. Because it isn't notarized by Apple yet, macOS will block the first launch. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
 4. When macOS asks whether LANDrop may accept incoming network connections, click **Allow**. Without this, other devices can't reach it.
 
 #### Windows
 
-1. Download [`LANDrop-win-x64.exe`](https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/LANDrop-win-x64.exe).
+1. Download [`LANDrop-win-x64.exe`](https://github.com/engineer-dilnawaz/landrop/releases/latest/download/LANDrop-win-x64.exe).
 2. Run it; LANDrop installs itself and opens. If SmartScreen warns that it's from an unknown publisher (it isn't code-signed yet), click **More info → Run anyway**.
 3. When Windows Firewall asks, allow LANDrop on **private networks**. Without this, other devices can't reach it.
 4. LANDrop lives in the system tray; click its icon to show the QR code.

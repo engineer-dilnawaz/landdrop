@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 
 export type Os = "mac" | "win";
 
-const BASE = "https://github.com/engineer-dilnawaz/landdrop/releases/latest/download/";
+const BASE = "https://github.com/engineer-dilnawaz/landrop/releases/latest/download/";
 
 /** The installers each release carries, named exactly as the release workflow publishes them. */
 export const DOWNLOADS = {

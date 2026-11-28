@@ -27,7 +27,7 @@ const MAC = process.platform === "darwin";
 const ICON = MAC ? join(__dirname, "../assets/trayTemplate.png") : nativeImage.createFromPath(join(__dirname, "../assets/icon.png")).resize({ width: 32, height: 32 });
 const COMPUTER = MAC ? "Mac" : "computer";
 const TRAY = MAC ? "menu bar" : "system tray";
-const REPO = "engineer-dilnawaz/landdrop";
+const REPO = "engineer-dilnawaz/landrop";
 const WEBSITE = "https://landdrop.vercel.app";
 // Overridable so the update flow can be tried against a local stand-in for GitHub.
 const RELEASES_URL = process.env.LANDROP_RELEASES_URL ?? `https://api.github.com/repos/${REPO}/releases/latest`;

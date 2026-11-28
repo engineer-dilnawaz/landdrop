@@ -23,8 +23,8 @@ export function Closing() {
           </span>
           <span>Everything stays on your Wi-Fi.</span>
           <span className="ml-auto flex items-center gap-5">
-            <a className={cn(buttonVariants({ variant: "link" }), "h-auto p-0 text-muted-foreground")} href="https://github.com/engineer-dilnawaz/landdrop">Source on GitHub</a>
-            <a className={cn(buttonVariants({ variant: "link" }), "h-auto p-0 text-muted-foreground")} href="https://github.com/engineer-dilnawaz/landdrop/releases">Releases</a>
+            <a className={cn(buttonVariants({ variant: "link" }), "h-auto p-0 text-muted-foreground")} href="https://github.com/engineer-dilnawaz/landrop">Source on GitHub</a>
+            <a className={cn(buttonVariants({ variant: "link" }), "h-auto p-0 text-muted-foreground")} href="https://github.com/engineer-dilnawaz/landrop/releases">Releases</a>
             <span>Made by Dilnawaz Khan</span>
           </span>
         </div>

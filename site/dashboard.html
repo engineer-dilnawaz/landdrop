@@ -6,95 +6,342 @@
   <meta name="robots" content="noindex, nofollow">
   <title>LANDrop dashboard</title>
   <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <style>
-    :root { --paper: #fafafa; --card: #fff; --ink: #09090b; --muted: #71717a; --line: #e4e4e7; --signal: #059669; }
-    @media (prefers-color-scheme: dark) { :root { --paper: #09090b; --card: #0c0c0e; --ink: #fafafa; --muted: #a1a1aa; --line: #27272a; --signal: #10b981; } }
+    :root {
+      --paper: #f5f6f2; --surface: #ffffff; --ink: #0f1a15; --muted: #5b6b63; --line: #dde3dd; --wash: #ebefe9;
+      --green: #04855d; --green-soft: #d9f0e6; --problem: #b4321f; --problem-soft: #fbe6e1; --idea: #04855d; --other: #5b6b63;
+      --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+      --sans: ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0b100e; --surface: #121915; --ink: #e9f0eb; --muted: #9aaba2; --line: #232d27; --wash: #18211c;
+        --green: #34d399; --green-soft: #12382b; --problem: #f08a78; --problem-soft: #3a1b16; --idea: #34d399; --other: #9aaba2;
+      }
+    }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-    main { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
-    h1 { font-size: 24px; margin: 0 0 20px; letter-spacing: -0.02em; }
-    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
-    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); margin-bottom: 16px; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
-    .big { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
-    .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
-    .bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
-    .bars div { flex: 1; background: var(--signal); border-radius: 3px 3px 0 0; min-height: 2px; opacity: .85; }
-    .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); }
-    .row:last-child { border: 0; }
-    form { display: flex; gap: 8px; max-width: 420px; margin-bottom: 20px; }
-    form[hidden] { display: none; }
-    input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; }
-    button { padding: 10px 16px; border-radius: 10px; border: 0; background: var(--signal); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
-    .err { color: #dc2626; margin-top: 10px; }
-    .fb { padding: 12px 0; border-bottom: 1px solid var(--line); }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
+    a { color: var(--green); }
+    button, input { font: inherit; color: inherit; }
+    :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 6px; }
+    [hidden] { display: none !important; }
+
+    .bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+    .bar-in { max-width: 1040px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 14px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.01em; }
+    .brand img { width: 26px; height: 26px; border-radius: 7px; }
+    .brand span { color: var(--muted); font-weight: 450; }
+    .grow { flex: 1; }
+    .stamp { color: var(--muted); font-size: 13px; }
+    .btn { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 7px 13px; cursor: pointer; font-size: 14px; }
+    .btn:hover { border-color: var(--green); }
+    .btn.primary { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+    .seg { display: inline-flex; background: var(--wash); border-radius: 10px; padding: 3px; gap: 2px; }
+    .seg button { border: 0; background: transparent; padding: 5px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--muted); }
+    .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+
+    main { max-width: 1040px; margin: 0 auto; padding: 36px 24px 96px; }
+    section { margin-top: 56px; }
+    h2 { font: 650 19px/1.3 var(--sans); letter-spacing: -.01em; margin: 0 0 4px; }
+    .lede { color: var(--muted); margin: 0 0 20px; max-width: 62ch; }
+
+    /* sign-in */
+    .gate { max-width: 380px; margin: 14vh auto 0; text-align: center; }
+    .gate img { width: 56px; height: 56px; border-radius: 15px; }
+    .gate h1 { font: 600 28px/1.2 var(--serif); margin: 18px 0 6px; letter-spacing: -.01em; }
+    .gate p { color: var(--muted); margin: 0 0 22px; }
+    .gate form { display: flex; gap: 8px; }
+    .gate input { flex: 1; min-width: 0; padding: 11px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+    .gate input:focus { border-color: var(--green); outline: 0; }
+    .err { color: var(--problem); margin-top: 14px; }
+
+    /* briefing */
+    .brief { font: 500 clamp(26px, 4.4vw, 40px)/1.22 var(--serif); letter-spacing: -.015em; margin: 0; max-width: 30ch; text-wrap: balance; }
+    .brief b { font-weight: 650; }
+    .up { color: var(--green); } .down { color: var(--problem); }
+    .brief-sub { color: var(--muted); margin: 14px 0 0; max-width: 60ch; }
+
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 36px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .kpi { padding: 20px 20px 18px 0; }
+    .kpi + .kpi { padding-left: 20px; border-left: 1px solid var(--line); }
+    .kpi .n { font: 650 34px/1.1 var(--sans); letter-spacing: -.03em; }
+    .kpi .l { color: var(--muted); font-size: 14px; margin-top: 2px; }
+    .kpi svg { display: block; margin-top: 10px; width: 100%; height: 26px; }
+    .spark { fill: none; stroke: var(--green); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+
+    /* chart */
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+    .panel-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .chart { position: relative; }
+    .chart svg { display: block; width: 100%; height: 260px; overflow: visible; }
+    .grid-line { stroke: var(--line); stroke-width: 1; }
+    .axis { fill: var(--muted); font-size: 12px; }
+    .col { fill: var(--green); opacity: .38; transition: opacity .12s; }
+    .col.on, .hit:hover + .col { opacity: 1; }
+    .tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--paper); border-radius: 10px; padding: 7px 11px; font-size: 13px; white-space: nowrap; transform: translate(-50%, -100%); margin-top: -10px; z-index: 2; }
+    .tip small { display: block; opacity: .7; }
+
+    /* breakdowns */
+    .cols { display: grid; grid-template-columns: repeat(2, 1fr); gap: 40px 56px; }
+    .rows { list-style: none; margin: 0; padding: 0; }
+    .rows li { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 14px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+    .rows li:last-child { border: 0; }
+    .rows .name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .rows .name span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rows .val { font-weight: 600; }
+    .rows .track { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: var(--wash); overflow: hidden; }
+    .rows .fill { display: block; height: 100%; background: var(--green); border-radius: 3px; }
+    .tag { font-size: 12px; background: var(--green-soft); color: var(--green); border-radius: 999px; padding: 1px 9px; font-weight: 600; }
+    .stack { display: flex; height: 14px; border-radius: 7px; overflow: hidden; gap: 2px; margin: 4px 0 14px; }
+    .stack i { display: block; min-width: 3px; }
+    .legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+    .legend li { display: flex; align-items: center; gap: 9px; }
+    .legend .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+    .legend .val { margin-left: auto; font-weight: 600; }
+    .note { color: var(--muted); font-size: 13px; margin-top: 12px; }
+
+    /* inbox */
+    .tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+    .tools input[type=search] { flex: 1; min-width: 180px; padding: 8px 13px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); }
+    .tools input:focus { border-color: var(--green); outline: 0; }
+    .inbox { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+    .fb { padding: 18px 20px; border-bottom: 1px solid var(--line); }
     .fb:last-child { border: 0; }
-    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
-    .chips span { background: var(--line); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
-    .fb p { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-    a { color: var(--signal); }
+    .fb-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
+    .kind { font-weight: 650; display: inline-flex; align-items: center; gap: 6px; color: var(--c); }
+    .kind::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+    .kind.problem { --c: var(--problem); } .kind.idea { --c: var(--idea); } .kind.other { --c: var(--other); }
+    .fb-msg { margin: 0; font-size: 16px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 70ch; }
+    .fb-msg.none { color: var(--muted); font-style: italic; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .chips span { background: var(--wash); border-radius: 999px; padding: 3px 11px; font-size: 13px; }
+    .chips .hot { background: var(--problem-soft); color: var(--problem); }
+    .fb-foot { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+    .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
+    .empty strong { display: block; color: var(--ink); font-size: 16px; margin-bottom: 4px; }
+
+    @media (max-width: 760px) {
+      main { padding: 24px 18px 72px; } .bar-in { padding: 10px 18px; flex-wrap: wrap; }
+      .kpis { grid-template-columns: 1fr 1fr; }
+      .kpi:nth-child(3) { padding-left: 0; border-left: 0; }
+      .kpi:nth-child(n+3) { border-top: 1px solid var(--line); }
+      .cols { grid-template-columns: 1fr; gap: 40px; }
+      .stamp { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   </style>
 </head>
 <body>
-  <main>
+  <header class="bar" id="bar" hidden>
+    <div class="bar-in">
+      <div class="brand"><img src="icon.svg" alt="">LANDrop <span>dashboard</span></div>
+      <div class="grow"></div>
+      <span class="stamp" id="stamp"></span>
+      <div class="seg" role="group" aria-label="Time range">
+        <button type="button" data-range="7" aria-pressed="false">7 days</button>
+        <button type="button" data-range="30" aria-pressed="true">30 days</button>
+      </div>
+      <button class="btn" type="button" id="refresh">Refresh</button>
+      <button class="btn" type="button" id="signout">Sign out</button>
+    </div>
+  </header>
+
+  <div class="gate" id="gate">
+    <img src="icon.svg" alt="">
     <h1>LANDrop dashboard</h1>
+    <p>See how people use LANDrop, and what they tell you.</p>
     <form id="login">
       <input id="token" type="password" placeholder="Dashboard token" autocomplete="current-password" aria-label="Dashboard token">
-      <button>Open</button>
+      <button class="btn primary">Open</button>
     </form>
-    <p class="err" id="err" hidden></p>
-    <div id="out" hidden></div>
-  </main>
+    <p class="err" id="err" role="alert" hidden></p>
+  </div>
+
+  <main id="out" hidden></main>
+
   <script>
-    var out = document.getElementById("out"), err = document.getElementById("err");
-    var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]; }); };
-    var sum = function (arr, k) { return arr.reduce(function (n, d) { return n + d[k]; }, 0); };
-    var list = function (title, obj) {
-      var rows = Object.entries(obj || {}).map(function (e) { return '<div class="row"><span>' + esc(e[0] === "ZZ" ? "Unknown" : e[0]) + "</span><strong>" + e[1].toLocaleString() + "</strong></div>"; }).join("");
-      return '<div class="card"><h2>' + title + "</h2>" + (rows || '<span class="sub">No data yet</span>') + "</div>";
-    };
-    var KIND = { problem: "Problem", idea: "Idea", other: "Other" };
-    var PLATFORM = { ios: "iPhone or iPad", android: "Android", desktop: "Computer", other: "Other" };
-    var AREA = { joining: "Joining or QR code", sending: "Sending files", chat: "Chat and messages", folders: "Folders", install: "Installing or updating", other: "Something else" };
-    var FREQ = { always: "Every time", sometimes: "Sometimes", once: "Just once" };
-    var TAG = { "wont-connect": "Won't connect", slow: "Too slow", froze: "Froze or crashed", failed: "File didn't arrive", confusing: "Confusing", "looks-wrong": "Looks wrong" };
-    function feedbackCard(items) {
-      var rows = items.map(function (f) {
-        var meta = [KIND[f.kind] || f.kind, f.source === "app" ? "from the app" : "from the website", PLATFORM[f.platform], f.version && "v" + f.version, f.os, new Date(f.at).toLocaleString()].filter(Boolean).map(esc).join(" · ");
-        return '<div class="fb"><div class="sub">' + meta + "</div>" + (f.device ? '<div class="sub">' + ["device", "os", "browser", "screen", "language"].map(function (k) { return f.device[k]; }).filter(Boolean).map(esc).join(" · ") + "</div>" : "") + (f.area || f.frequency || (f.tags && f.tags.length) ? '<div class="chips">' + [AREA[f.area], FREQ[f.frequency]].concat((f.tags || []).map(function (t) { return TAG[t]; })).filter(Boolean).map(function (c) { return "<span>" + esc(c) + "</span>"; }).join("") + "</div>" : "") + (f.message ? "<p>" + esc(f.message) + "</p>" : "") + (f.email ? '<div class="sub">Reply to: <a href="mailto:' + esc(f.email) + '">' + esc(f.email) + "</a></div>" : "") + "</div>";
+    var $ = function (s, r) { return (r || document).querySelector(s); };
+    var out = $("#out"), err = $("#err"), gate = $("#gate"), bar = $("#bar");
+    var state = { data: null, range: 30, metric: "active", kind: "all", q: "" };
+
+    var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); };
+    var num = function (n) { return Number(n || 0).toLocaleString(); };
+    var sum = function (arr, k) { return arr.reduce(function (n, d) { return n + (d[k] || 0); }, 0); };
+    var short = function (day) { var d = new Date(day + "T00:00:00"); return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
+
+    var HOSTS = { "darwin-arm64": "Mac, Apple silicon", "darwin-x64": "Mac, Intel", "win32-x64": "Windows", "win32-arm64": "Windows, ARM", "linux-x64": "Linux" };
+    var ASSETS = { "LANDrop-mac-arm64.dmg": "Mac, Apple silicon", "LANDrop-mac-x64.dmg": "Mac, Intel", "LANDrop-win-x64.exe": "Windows" };
+    var GUESTS = [["ios", "iPhone or iPad", "#1f6bff"], ["android", "Android", "#04855d"], ["desktop", "Computer browser", "#e8710a"], ["other", "Other", "#8a948e"]];
+    var KINDS = { problem: "Problem", idea: "Idea", other: "Something else" };
+    var AREAS = { joining: "Joining or QR code", sending: "Sending files", chat: "Chat and messages", folders: "Folders", install: "Installing or updating", other: "Something else" };
+    var FREQ = { always: "Happens every time", sometimes: "Happens sometimes", once: "Happened once" };
+    var TAGS = { "wont-connect": "Won't connect", slow: "Too slow", froze: "Froze or crashed", failed: "File didn't arrive", confusing: "Confusing", "looks-wrong": "Looks wrong" };
+
+    var regions; try { regions = new Intl.DisplayNames(["en"], { type: "region" }); } catch (e) {}
+    function country(code) {
+      if (code === "ZZ") return "Unknown";
+      var flag = /^[A-Z]{2}$/.test(code) ? String.fromCodePoint.apply(null, code.split("").map(function (c) { return 127397 + c.charCodeAt(0); })) : "";
+      var name; try { name = regions && regions.of(code); } catch (e) {}
+      return (flag ? flag + " " : "") + (name || code);
+    }
+    function ago(ms) {
+      var s = Math.max(1, Math.round((Date.now() - ms) / 1000));
+      if (s < 60) return "just now";
+      var m = Math.round(s / 60); if (m < 60) return m + " min ago";
+      var h = Math.round(m / 60); if (h < 24) return h + " hour" + (h > 1 ? "s" : "") + " ago";
+      var d = Math.round(h / 24); if (d < 14) return d + " day" + (d > 1 ? "s" : "") + " ago";
+      return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
+    function spark(values) {
+      var max = Math.max.apply(null, values.concat([1])), w = 100, h = 26;
+      var pts = values.map(function (v, i) { return (values.length > 1 ? (i / (values.length - 1)) * w : 0).toFixed(1) + "," + (h - 2 - (v / max) * (h - 4)).toFixed(1); }).join(" ");
+      return '<svg viewBox="0 0 ' + w + " " + h + '" preserveAspectRatio="none" aria-hidden="true"><polyline class="spark" vector-effect="non-scaling-stroke" points="' + pts + '"/></svg>';
+    }
+    function barRows(entries, opts) {
+      opts = opts || {};
+      var max = Math.max.apply(null, entries.map(function (e) { return e[1]; }).concat([1]));
+      if (!entries.length) return '<p class="note">Nothing yet. It fills in as people use LANDrop.</p>';
+      return '<ul class="rows">' + entries.map(function (e) {
+        return '<li><span class="name"><span>' + esc(e[0]) + "</span>" + (e[2] ? '<span class="tag">' + esc(e[2]) + "</span>" : "") + '</span><span class="val">' + num(e[1]) + '</span><span class="track"><span class="fill" style="width:' + Math.max(2, (e[1] / max) * 100) + '%"></span></span></li>';
+      }).join("") + "</ul>";
+    }
+
+    /* ---------- chart ---------- */
+    var chartW = 960;
+    function chartWidth() { var pad = parseFloat(getComputedStyle(out).paddingLeft) * 2 || 0; chartW = Math.max(300, Math.min(960, (out.clientWidth || 960) - pad - 42)); return chartW; }
+    var METRICS = { active: ["Active installs", "Macs and PCs that opened LANDrop that day."], guests: ["Devices joined", "Phones and computers that joined someone's LANDrop that day."], messages: ["Messages sent", "Chat messages sent between devices."], files: ["Files shared", "Files sent between devices."] };
+    function chart(series, metric) {
+      var vals = series.map(function (d) { return d[metric] || 0; });
+      var max = Math.max.apply(null, vals.concat([1])), top = Math.ceil(max / (max < 10 ? 2 : 10)) * (max < 10 ? 2 : 10) || 1;
+      var W = chartWidth(), H = 260, L = 34, B = 24, T = 8, cw = (W - L) / series.length, ch = H - B - T;
+      var g = "", cols = "";
+      for (var i = 0; i <= 4; i++) { var y = T + ch - (ch * i) / 4; g += '<line class="grid-line" x1="' + L + '" x2="' + W + '" y1="' + y + '" y2="' + y + '"/><text class="axis" x="0" y="' + (y + 4) + '">' + Math.round((top * i) / 4) + "</text>"; }
+      series.forEach(function (d, i) {
+        var v = vals[i], bh = Math.max(v ? 3 : 1, (v / top) * ch), x = L + i * cw + cw * 0.16, w = cw * 0.68;
+        cols += '<g><rect class="hit" data-i="' + i + '" x="' + (L + i * cw) + '" y="0" width="' + cw + '" height="' + H + '" fill="transparent"/><rect class="col" x="' + x + '" y="' + (T + ch - bh) + '" width="' + w + '" height="' + bh + '" rx="3"/></g>';
+      });
+      var every = Math.ceil(series.length / Math.max(3, Math.floor(W / 90))), labels = "";
+      series.forEach(function (d, i) { if (i % every === 0 || i === series.length - 1) labels += '<text class="axis" text-anchor="middle" x="' + (L + i * cw + cw / 2) + '" y="' + (H - 4) + '">' + short(d.day) + "</text>"; });
+      return '<div class="chart"><svg viewBox="0 0 ' + W + " " + H + '" width="' + W + '" role="img" aria-label="' + esc(METRICS[metric][0]) + ' per day, highest ' + max + '">' + g + cols + labels + '</svg><div class="tip" hidden></div></div>';
+    }
+    function wireChart(series, metric) {
+      var box = $(".chart"), tip = $(".tip", box), cols = box.querySelectorAll(".col");
+      box.addEventListener("mousemove", function (e) {
+        var hit = e.target.closest ? e.target.closest(".hit") : null;
+        cols.forEach(function (c) { c.classList.remove("on"); });
+        if (!hit) { tip.hidden = true; return; }
+        var i = +hit.dataset.i, d = series[i], r = box.getBoundingClientRect(), svg = $("svg", box).getBoundingClientRect();
+        cols[i].classList.add("on");
+        tip.innerHTML = "<strong>" + num(d[metric]) + "</strong> " + esc(METRICS[metric][0].toLowerCase()) + "<small>" + short(d.day) + "</small>";
+        tip.hidden = false;
+        tip.style.left = 34 + i * ((chartW - 34) / series.length) + (chartW - 34) / series.length / 2 + "px";
+        tip.style.top = "40px";
+      });
+      box.addEventListener("mouseleave", function () { tip.hidden = true; cols.forEach(function (c) { c.classList.remove("on"); }); });
+    }
+
+    /* ---------- feedback ---------- */
+    function feedbackList(items) {
+      var q = state.q.trim().toLowerCase();
+      var shown = items.filter(function (f) {
+        if (state.kind !== "all" && f.kind !== state.kind) return false;
+        if (!q) return true;
+        var hay = [f.message, f.email, (f.device && Object.values(f.device).join(" ")), AREAS[f.area], (f.tags || []).map(function (t) { return TAGS[t]; }).join(" ")].join(" ").toLowerCase();
+        return hay.indexOf(q) !== -1;
+      });
+      if (!shown.length) {
+        return '<div class="empty"><strong>' + (items.length ? "Nothing matches" : "No feedback yet") + "</strong>" + (items.length ? "Try another filter or a different search." : 'Send one yourself from <a href="/feedback">landdrop.vercel.app/feedback</a> to see how it looks here.') + "</div>";
+      }
+      return shown.map(function (f) {
+        var chips = (f.tags || []).map(function (t) { return '<span class="hot">' + esc(TAGS[t] || t) + "</span>"; }).concat(f.area ? ["<span>" + esc(AREAS[f.area] || f.area) + "</span>"] : [], f.frequency ? ["<span>" + esc(FREQ[f.frequency] || f.frequency) + "</span>"] : []).join("");
+        var dev = f.device ? ["device", "os", "browser", "screen", "language"].map(function (k) { return f.device[k]; }).filter(Boolean).join(", ") : "";
+        var from = f.source === "app" ? "From the app" : "From the website";
+        return '<article class="fb"><div class="fb-top"><span class="kind ' + esc(f.kind) + '">' + esc(KINDS[f.kind] || f.kind) + "</span><span>" + from + "</span><span title=\"" + esc(new Date(f.at).toLocaleString()) + '">' + ago(f.at) + "</span></div>" +
+          (f.message ? '<p class="fb-msg">' + esc(f.message) + "</p>" : '<p class="fb-msg none">No message, they ticked options only.</p>') +
+          (chips ? '<div class="chips">' + chips + "</div>" : "") +
+          '<div class="fb-foot">' + (dev ? "<span>" + esc(dev) + "</span>" : "") + (f.version ? "<span>LANDrop " + esc(f.version) + "</span>" : "") + (f.email ? '<a href="mailto:' + esc(f.email) + '">Reply to ' + esc(f.email) + "</a>" : "") + "</div></article>";
       }).join("");
-      return '<div class="card" style="margin-top:16px"><h2>Feedback (' + items.length + ")</h2>" + (rows || '<span class="sub">Nothing yet</span>') + "</div>";
     }
+
+    /* ---------- page ---------- */
     function render(d) {
-      if (!d.configured) { out.innerHTML = '<div class="card">The store is not connected yet. Add the Upstash Redis integration to the Vercel project.</div>'; return; }
-      var s = d.series, max = Math.max.apply(null, s.map(function (x) { return x.active; }).concat([1]));
-      var perSession = sum(s, "installs") ? (sum(s, "guests") / sum(s, "installs")).toFixed(1) : "0";
-      var dl = d.downloads || { total: "n/a", byAsset: {}, byRelease: {} };
+      if (!d.configured) { out.innerHTML = '<div class="empty"><strong>The store is not connected yet</strong>Add the Upstash Redis integration to the Vercel project.</div>'; reveal(); return; }
+      reveal(); // shown first so the chart can measure the room it has
+      var all = d.series, s = all.slice(-state.range), prev = all.slice(-state.range * 2, -state.range);
+      var dl = d.downloads || { total: 0, byAsset: {}, byRelease: {} };
+      var fb = d.feedback || [];
+      var thisW = sum(all.slice(-7), "active"), lastW = sum(all.slice(-14, -7), "active");
+      var change = lastW ? Math.round(((thisW - lastW) / lastW) * 100) : null;
+      var week = d.active7;
+      var headline = "<b>" + num(week) + "</b> " + (week === 1 ? "person" : "people") + " used LANDrop this week" +
+        (change !== null && change !== 0 ? ', <span class="' + (change > 0 ? "up" : "down") + '">' + (change > 0 ? "up " : "down ") + Math.abs(change) + "%</span> on the week before" : "") + ".";
+      var waiting = fb.filter(function (f) { return Date.now() - f.at < 7 * 864e5; }).length;
+      var sub = (waiting ? waiting + " new " + (waiting === 1 ? "note" : "notes") + " from users this week. " : "No new feedback this week. ") + num(dl.total) + " installers downloaded so far.";
+      var perInstall = sum(s, "installs") ? (sum(s, "guests") / sum(s, "installs")).toFixed(1) : "0";
+
+      var kpi = function (n, label, series) { return '<div class="kpi"><div class="n">' + n + '</div><div class="l">' + label + "</div>" + spark(series) + "</div>"; };
+      var gp = d.guestsByPlatform || {}, gTotal = GUESTS.reduce(function (n, g) { return n + (gp[g[0]] || 0); }, 0);
+
+      var versions = Object.entries(d.byVersion || {}); var latest = versions.length ? versions.map(function (v) { return v[0]; }).sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true }); }).pop() : "";
+      var topVersion = versions[0] ? versions[0][0] : "";
+
       out.innerHTML =
-        '<div class="grid">' +
-        '<div class="card"><div class="big">' + (dl.total) + '</div><div class="sub">installer downloads (includes in-app updates)</div></div>' +
-        '<div class="card"><div class="big">' + d.active7 + '</div><div class="sub">active this week</div></div>' +
-        '<div class="card"><div class="big">' + d.active30 + '</div><div class="sub">active in 30 days</div></div>' +
-        '<div class="card"><div class="big">' + perSession + '</div><div class="sub">guest devices per active install per day</div></div>' +
+        '<h1 class="brief">' + headline + '</h1><p class="brief-sub">' + sub + "</p>" +
+        '<div class="kpis">' +
+          kpi(num(dl.total), "Installers downloaded", all.map(function (x) { return x.installs; })) +
+          kpi(num(d.active7), "People active this week", all.slice(-7).map(function (x) { return x.active; })) +
+          kpi(num(d.active30), "People active this month", all.map(function (x) { return x.active; })) +
+          kpi(num(sum(s, "files")), "Files shared, last " + state.range + " days", s.map(function (x) { return x.files; })) +
         "</div>" +
-        '<div class="card" style="margin-bottom:16px"><h2>Active installs per day, last 30 days</h2><div class="bars">' +
-        s.map(function (x) { return '<div title="' + x.day + ": " + x.active + '" style="height:' + Math.max(2, (x.active / max) * 100) + '%"></div>'; }).join("") +
-        '</div></div><div class="grid">' +
-        '<div class="card"><h2>30-day totals</h2><div class="row"><span>Messages</span><strong>' + sum(s, "messages") + '</strong></div><div class="row"><span>Files shared</span><strong>' + sum(s, "files") + '</strong></div><div class="row"><span>Guest devices</span><strong>' + sum(s, "guests") + "</strong></div></div>" +
-        list("Countries", d.byCountry) + list("Hosts: Mac or Windows", d.byOs) + list("Guests joining (30 days)", { "iPhone or iPad": (d.guestsByPlatform || {}).ios || 0, Android: (d.guestsByPlatform || {}).android || 0, "Computer browser": (d.guestsByPlatform || {}).desktop || 0, Other: (d.guestsByPlatform || {}).other || 0 }) + list("Versions", d.byVersion) +
-        list("Downloads by file", dl.byAsset) + list("Downloads by release", dl.byRelease) + "</div>" + feedbackCard(d.feedback || []);
-      out.hidden = false;
+
+        "<section><div class=\"panel\"><div class=\"panel-head\"><div><h2>" + METRICS[state.metric][0] + " per day</h2><p class=\"lede\" style=\"margin:0\">" + METRICS[state.metric][1] + '</p></div><div class="seg" role="group" aria-label="What to chart">' +
+          Object.keys(METRICS).map(function (k) { return '<button type="button" data-metric="' + k + '" aria-pressed="' + (k === state.metric) + '">' + METRICS[k][0].split(" ")[0] + "</button>"; }).join("") + "</div></div>" + chart(s, state.metric) +
+          '<p class="note">An active install is one Mac or PC that opened LANDrop that day. Numbers are anonymous counts.</p></div></section>' +
+
+        '<section><h2>Who is using it</h2><p class="lede">Where your people are, and what they run LANDrop on.</p><div class="cols">' +
+          "<div><h3 style=\"font:600 15px var(--sans);margin:0 0 8px\">Countries</h3>" + barRows(Object.entries(d.byCountry || {}).slice(0, 8).map(function (e) { return [country(e[0]), e[1]]; })) + "</div>" +
+          "<div><h3 style=\"font:600 15px var(--sans);margin:0 0 8px\">Computers running LANDrop</h3>" + barRows(Object.entries(d.byOs || {}).map(function (e) { return [HOSTS[e[0]] || e[0], e[1]]; })) + "</div></div></section>" +
+
+        '<section><div class="cols"><div><h2>What phones join from</h2><p class="lede">Devices that joined in the last 30 days. ' + num(gTotal) + ' in total, about ' + perInstall + " per install per day.</p>" +
+          (gTotal ? '<div class="stack" role="img" aria-label="Guest devices by kind">' + GUESTS.map(function (g) { return '<i style="flex:' + (gp[g[0]] || 0) + ";background:" + g[2] + '"></i>'; }).join("") + "</div>" : "") +
+          '<ul class="legend">' + GUESTS.map(function (g) { return '<li><span class="dot" style="background:' + g[2] + '"></span>' + g[1] + '<span class="val">' + num(gp[g[0]]) + "</span></li>"; }).join("") + "</ul></div>" +
+          "<div><h2>Which version people run</h2><p class=\"lede\">" + (topVersion ? "Most active installs are on " + esc(topVersion) + ". " : "") + (latest && topVersion && topVersion !== latest ? "The newest seen is " + esc(latest) + "." : "") + "</p>" +
+          barRows(versions.map(function (e) { return [e[0], e[1], e[0] === latest ? "Newest" : ""]; })) + "</div></div></section>" +
+
+        '<section><div class="cols"><div><h2>Downloads by computer</h2><p class="lede">Counts include in-app updates, so they run higher than new people.</p>' + barRows(Object.entries(dl.byAsset || {}).map(function (e) { return [ASSETS[e[0]] || e[0], e[1]]; })) + "</div>" +
+          "<div><h2>Downloads by release</h2><p class=\"lede\">How each version has done since it shipped.</p>" + barRows(Object.entries(dl.byRelease || {}).slice(0, 8)) + "</div></div></section>" +
+
+        '<section><h2>What people are saying</h2><p class="lede">Feedback sent from the app and the website. ' + fb.length + " so far, newest first.</p>" +
+          '<div class="tools"><div class="seg" role="group" aria-label="Filter feedback">' + [["all", "All"], ["problem", "Problems"], ["idea", "Ideas"], ["other", "Other"]].map(function (k) { return '<button type="button" data-kind="' + k[0] + '" aria-pressed="' + (state.kind === k[0]) + '">' + k[1] + (k[0] === "all" ? " " + fb.length : " " + fb.filter(function (f) { return f.kind === k[0]; }).length) + "</button>"; }).join("") + '</div><input type="search" id="q" placeholder="Search feedback" aria-label="Search feedback" value="' + esc(state.q) + '"></div>' +
+          '<div class="inbox" id="inbox">' + feedbackList(fb) + "</div></section>";
+
+      var series = s;
+      wireChart(series, state.metric);
+      out.querySelectorAll("[data-metric]").forEach(function (b) { b.onclick = function () { state.metric = b.dataset.metric; render(state.data); }; });
+      out.querySelectorAll("[data-kind]").forEach(function (b) { b.onclick = function () { state.kind = b.dataset.kind; render(state.data); }; });
+      var q = $("#q"); q.oninput = function () { state.q = q.value; $("#inbox").innerHTML = feedbackList(fb); };
+      $("#stamp").textContent = "Updated " + new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+      document.querySelectorAll("[data-range]").forEach(function (b) { b.setAttribute("aria-pressed", String(+b.dataset.range === state.range)); });
+      reveal();
     }
-    function load(token) {
+    function reveal() { gate.hidden = true; bar.hidden = false; out.hidden = false; }
+
+    function load(token, quiet) {
       err.hidden = true;
       fetch("/api/admin", { headers: { Authorization: "Bearer " + token } }).then(function (r) {
-        if (r.status === 401) throw new Error("That token is not right.");
-        if (!r.ok) throw new Error("Something went wrong (" + r.status + ").");
+        if (r.status === 401) throw new Error("That token is not right. Check it and try again.");
+        if (!r.ok) throw new Error("Something went wrong (" + r.status + "). Try again in a moment.");
         return r.json();
-      }).then(function (d) { sessionStorage.setItem("landrop-dash", token); document.getElementById("login").hidden = true; render(d); })
-        .catch(function (e) { sessionStorage.removeItem("landrop-dash"); err.textContent = e.message; err.hidden = false; });
+      }).then(function (d) { sessionStorage.setItem("landrop-dash", token); state.data = d; render(d); })
+        .catch(function (e) { if (!quiet) { sessionStorage.removeItem("landrop-dash"); } err.textContent = e.message; err.hidden = false; gate.hidden = false; bar.hidden = true; out.hidden = true; });
     }
-    document.getElementById("login").addEventListener("submit", function (e) { e.preventDefault(); load(document.getElementById("token").value); });
+    $("#login").addEventListener("submit", function (e) { e.preventDefault(); load($("#token").value); });
+    $("#refresh").addEventListener("click", function () { var t = sessionStorage.getItem("landrop-dash"); if (t) load(t, true); });
+    $("#signout").addEventListener("click", function () { sessionStorage.removeItem("landrop-dash"); state.data = null; out.hidden = true; bar.hidden = true; gate.hidden = false; $("#token").value = ""; });
+    document.querySelectorAll("[data-range]").forEach(function (b) { b.addEventListener("click", function () { state.range = +b.dataset.range; if (state.data) render(state.data); }); });
+    var resizing; window.addEventListener("resize", function () { clearTimeout(resizing); resizing = setTimeout(function () { if (state.data && !out.hidden) render(state.data); }, 150); });
     var saved = sessionStorage.getItem("landrop-dash"); if (saved) load(saved);
   </script>
 </body>

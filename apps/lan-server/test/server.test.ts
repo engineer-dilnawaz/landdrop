@@ -27,7 +27,7 @@ import {
   type ServerEvent,
 } from "@landrop/protocol";
 import { DatabaseSync } from "node:sqlite";
-import { ChatStore } from "../src/chat.js";
+import { ChatStore, platformOf } from "../src/chat.js";
 import { buildApp, contentDisposition, parseRange } from "../src/app.js";
 import { startHost } from "../src/host.js";
 import type { Network } from "../src/network.js";
@@ -1447,10 +1447,22 @@ describe("anonymous usage counts", () => {
     fromHost = true;
     const answer = await fetch(base + routes.usage);
     const counts = await answer.json();
-    expect(counts).toEqual({ devices: 1, messages: 2, files: 1 });
+    expect(counts).toEqual({ devices: 1, messages: 2, files: 1, platforms: { ios: 0, android: 0, desktop: 0, other: 1 } });
     const raw = JSON.stringify(counts);
     expect(raw).not.toContain("secret");
     expect(raw).not.toContain("holiday");
     expect(raw).not.toContain("Galaxy");
+  });
+});
+
+describe("kinds of device", () => {
+  it("sorts a browser into iPhone or iPad, Android, computer or other, and keeps nothing else", () => {
+    expect(platformOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile Safari")).toBe("ios");
+    expect(platformOf("Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)")).toBe("ios");
+    expect(platformOf("Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/130 Mobile Safari/537.36")).toBe("android");
+    expect(platformOf("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/130")).toBe("desktop");
+    expect(platformOf("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/130")).toBe("desktop");
+    expect(platformOf(undefined)).toBe("other");
+    expect(platformOf("curl/8.0")).toBe("other");
   });
 });

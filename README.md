@@ -30,12 +30,16 @@ Moving a video from an Android phone to a Mac, or a document from a Windows lapt
 
 | | |
 |---|---|
-| **Group and private chat** | Message everyone on the network, or a single device privately. |
-| **File sharing** | Photos, videos and documents of any size, with in-chat previews. |
+| **Group and private chat** | Message everyone on the network, one device privately, or a private group of the devices you choose. Reply, forward, pin a message for everyone, and pin your favourite chats. |
+| **Files of any size** | Photos, videos and documents with in-chat previews, shared folders you can browse, and a viewer for code, JSON, Markdown and text. |
 | **Live streaming of large files** | Huge files are served straight from the sender's device instead of being copied first. |
-| **Device discovery** | See who is online on your network in real time. |
-| **QR join** | The Mac shows a QR code; any device scans it to open LANDrop in its browser. |
-| **Menu bar / tray app** | Runs quietly in the Mac menu bar or Windows tray, can start at login, and can keep the Mac awake while plugged in. |
+| **Voice messages, emoji and GIFs** | Everything you would expect from a chat app. |
+| **Read receipts and message info** | See who has read a message and when. |
+| **Device discovery and profiles** | See who is online in real time, with names and profile pictures. |
+| **QR join and phone install** | The Mac or PC shows a QR code; any device scans it to open LANDrop in its browser, and can add it to its home screen. |
+| **One history per Wi-Fi** | Each network keeps its own chats and files; they come back when you rejoin it. |
+| **Menu bar / tray app** | Runs quietly in the Mac menu bar or Windows tray, starts at login, keeps the computer awake while plugged in, and updates itself in the app. |
+| **Looks your way** | Light, dark or follow the device, with accent colours, text size and chat wallpapers. |
 
 ## Getting started
 
@@ -55,7 +59,7 @@ Moving a video from an Android phone to a Mac, or a document from a Windows lapt
 
 ### 2. Connect your devices
 
-1. Click the LANDrop icon in the menu bar (Mac) or system tray (Windows) to show the QR code.
+1. Open LANDrop and tap the join button in its corner, or click the menu bar (Mac) or system tray (Windows) icon and choose **Show QR Code to Join**.
 2. On any phone or computer **on the same Wi-Fi**, scan the code (or type the address shown under it).
 3. LANDrop opens in the browser. Pick a name and start chatting.
 
@@ -136,19 +140,6 @@ npm start --workspace @landrop/lan-server
 | `LANDROP_PORT` | `4545` | Port the server listens on. |
 | `LANDROP_DATA_DIR` | `~/.landrop` | Where chat history and attachments are stored. |
 | `LANDROP_WEB_DIR` | `apps/web/out` | Location of the built web app. |
-
-## Roadmap
-
-- Folder sharing, browsable inside the app
-- Private groups with chosen devices
-- Voice messages
-- Rich media viewer for photos, videos and GIFs
-- Emoji and GIF picker
-- Message info and read receipts
-- Chat bubble customisation
-- Separate history per Wi-Fi network
-- Shareable QR code and invite link
-- Redesigned app and Mac menu bar actions
 
 ## Author
 

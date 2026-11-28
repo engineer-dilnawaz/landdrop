@@ -33,7 +33,7 @@ import {
   type NetworkDevice,
   type ServerEvent,
 } from "@landrop/protocol";
-import { ChatStore, HttpError } from "./chat.js";
+import { ChatStore, HttpError, platformOf } from "./chat.js";
 import { LiveFiles, type TabKey } from "./live.js";
 import { hardwareAddressOf, scanNetwork as scanHostNetwork } from "./network.js";
 import { FolderIndex } from "./folder.js";
@@ -270,6 +270,7 @@ export async function buildApp({
           tab: `${message.deviceId}:${message.tabId}`,
           address: normalizeAddress(request.socket.remoteAddress),
         };
+        store.setPlatform(message.deviceId, platformOf(request.headers["user-agent"]));
         live.tabConnected(session.tab);
         for (const other of sessions.values()) {
           if (other.device.id === session.device.id) other.device.name = session.device.name;

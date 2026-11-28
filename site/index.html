@@ -535,13 +535,13 @@
             <li data-os="mac"><button class="step" role="tab" aria-selected="false" aria-controls="sc2" id="st2" tabindex="-1"><div><strong>Move it to Applications</strong><span>Open the downloaded file and drag the LANDrop icon onto the Applications folder.</span></div></button></li>
             <li data-os="mac"><button class="step" role="tab" aria-selected="false" aria-controls="sc3" id="st3" tabindex="-1"><div><strong>Allow it the first time</strong><span>LANDrop isn't notarized by Apple yet, so macOS asks first. Open it once, then go to System Settings, Privacy &amp; Security, and click <kbd>Open Anyway</kbd>.</span></div></button></li>
             <li data-os="mac"><button class="step" role="tab" aria-selected="false" aria-controls="sc4" id="st4" tabindex="-1"><div><strong>Let devices connect</strong><span>When macOS asks whether LANDrop can accept incoming network connections, click <kbd>Allow</kbd>. Without it, phones can't reach your Mac.</span></div></button></li>
-            <li data-os="mac"><button class="step" role="tab" aria-selected="false" aria-controls="sc5" id="st5" tabindex="-1"><div><strong>Scan to join</strong><span>Click the LANDrop icon in the menu bar and choose Show QR Code. Any device on the same Wi-Fi scans it and opens LANDrop in its browser.</span></div></button></li>
+            <li data-os="mac"><button class="step" role="tab" aria-selected="false" aria-controls="sc5" id="st5" tabindex="-1"><div><strong>Scan to join</strong><span>Open LANDrop and tap the join button in its corner, or click the menu bar icon and choose Show QR Code to Join. Any device on the same Wi-Fi scans it and opens LANDrop in its browser.</span></div></button></li>
             <li data-os="mac"><button class="step" role="tab" aria-selected="false" aria-controls="sc6" id="st6" tabindex="-1"><div><strong>Turn on notifications</strong><span>macOS asks the first time LANDrop wants to alert you about a message: click <kbd>Allow</kbd>. If no alerts show up, open System Settings, Notifications, choose LANDrop and switch on <kbd>Allow Notifications</kbd>.</span></div></button></li>
             <li data-os="win" hidden><button class="step" role="tab" aria-selected="true" aria-controls="wsc1" id="wst1"><div><strong>Download LANDrop</strong><span>Get the free installer, <kbd>LANDrop-win-x64.exe</kbd>. It's a single file of about 120 MB.</span></div></button></li>
             <li data-os="win" hidden><button class="step" role="tab" aria-selected="false" aria-controls="wsc2" id="wst2" tabindex="-1"><div><strong>Run the installer</strong><span>Open the downloaded file. LANDrop installs for your account, with no administrator password, and opens by itself.</span></div></button></li>
             <li data-os="win" hidden><button class="step" role="tab" aria-selected="false" aria-controls="wsc3" id="wst3" tabindex="-1"><div><strong>Allow it the first time</strong><span>LANDrop isn't code-signed yet, so Windows SmartScreen may warn. Click <kbd>More info</kbd>, then <kbd>Run anyway</kbd>.</span></div></button></li>
             <li data-os="win" hidden><button class="step" role="tab" aria-selected="false" aria-controls="wsc4" id="wst4" tabindex="-1"><div><strong>Let devices connect</strong><span>When Windows Firewall asks, keep <kbd>Private networks</kbd> ticked and click <kbd>Allow access</kbd>. Without it, phones can't reach this PC.</span></div></button></li>
-            <li data-os="win" hidden><button class="step" role="tab" aria-selected="false" aria-controls="wsc5" id="wst5" tabindex="-1"><div><strong>Scan to join</strong><span>Click the LANDrop icon in the system tray (bottom right, under the ^ arrow if it's hidden) and choose Show QR Code to Join. Any device on the same Wi-Fi scans it and opens LANDrop in its browser.</span></div></button></li>
+            <li data-os="win" hidden><button class="step" role="tab" aria-selected="false" aria-controls="wsc5" id="wst5" tabindex="-1"><div><strong>Scan to join</strong><span>Open LANDrop and tap the join button in its corner, or click the tray icon (bottom right, under the ^ arrow if it's hidden) and choose Show QR Code to Join. Any device on the same Wi-Fi scans it and opens LANDrop in its browser.</span></div></button></li>
             <li data-os="win" hidden><button class="step" role="tab" aria-selected="false" aria-controls="wsc6" id="wst6" tabindex="-1"><div><strong>Turn on notifications</strong><span>LANDrop alerts you about new messages. If none show up, open Settings, System, Notifications, switch on LANDrop, and check that Do not disturb is off.</span></div></button></li>
           </ol>
 
@@ -667,7 +667,7 @@
 
           <div class="panel" role="tabpanel" id="p1" aria-labelledby="t1">
             <div><h3>One room for every device</h3><p>Everyone who joins lands in the same group chat, whatever they're holding.</p>
-              <ul><li>See who's online right now</li><li>Name your device so others know it's you</li><li>History stays on your Mac until you clear it</li></ul></div>
+              <ul><li>See who's online right now</li><li>Pick a name and a picture so others know it's you</li><li>Reply, forward, and pin a message for everyone</li></ul></div>
             <div class="demo">
               <div class="msg"><small>Sara's iPhone</small>Is the printer document on someone's laptop?</div>
               <div class="msg"><small>Windows PC</small>Sending it now</div>
@@ -678,7 +678,7 @@
 
           <div class="panel" role="tabpanel" id="p2" aria-labelledby="t2" hidden>
             <div><h3>Full quality, full speed</h3><p>Photos and videos arrive exactly as they were taken, with no compression, at the speed of your Wi-Fi.</p>
-              <ul><li>Drop files into the chat or pick them from your phone</li><li>Preview images and videos right in the chat</li><li>Anyone can save a file to their own device</li></ul></div>
+              <ul><li>Drop files into the chat or pick them from your phone</li><li>Preview photos and videos, and open code, JSON and text in a clean viewer</li><li>Share a whole folder, and anyone can save what they need</li></ul></div>
             <div class="demo">
               <div class="msg"><small>Galaxy S24</small>Sending the sunset ones</div>
               <div class="media"><div class="pic"></div><div class="cap"><span>IMG_2048.HEIC</span><span>8.4 MB</span></div></div>
@@ -697,7 +697,7 @@
 
           <div class="panel" role="tabpanel" id="p4" aria-labelledby="t4" hidden>
             <div><h3>Message one device, not the room</h3><p>Pick a device to start a private conversation. Only the two of you see it.</p>
-              <ul><li>Send private files the same way</li><li>Switch between group and private chats in one tap</li><li>Private groups of several devices are coming soon</li></ul></div>
+              <ul><li>Send private files the same way</li><li>Make a private group with just the devices you choose</li><li>Pin the chats you use most to the top</li></ul></div>
             <div class="demo device-list">
               <div class="dev"><svg><use href="#i-phone"/></svg>Sara's iPhone<span class="state">Online</span></div>
               <div class="dev sel"><svg><use href="#i-tablet"/></svg>Kitchen iPad<span class="state">Online</span></div>
@@ -717,8 +717,10 @@
                 <div>Open LANDrop</div>
                 <div class="sep"></div>
                 <div><span class="check">✓</span>Start at Login</div>
+                <div><span class="check">✓</span>Notify Me About New Messages</div>
                 <div><span class="check">✓</span>Keep Mac Awake While Plugged In</div>
                 <div class="sep"></div>
+                <div>Check for Updates…</div>
                 <div>Quit LANDrop</div>
               </div>
             </div>
@@ -733,18 +735,23 @@
         <h2 class="reveal">Questions and fixes</h2>
         <div class="help reveal">
           <div>
-            <details><summary>Is LANDrop free?</summary><p>Yes. The Mac app is free, and other devices don't need anything installed.</p></details>
+            <details><summary>Is LANDrop free?</summary><p>Yes. The Mac and Windows apps are free, and other devices don't need anything installed.</p></details>
             <details><summary>Which computers can host it?</summary><p>Macs (Apple silicon or Intel) and Windows PCs. Any device with a modern web browser can join: iPhone, iPad, Android, Windows, Linux or another Mac.</p></details>
-            <details data-os="mac"><summary>Where are my messages and files kept?</summary><p>On the Mac running LANDrop, in a folder called .landrop in your home folder. Your messages and files are never sent to a server, and the chat stays until you clear it.</p></details>
-            <details data-os="win" hidden><summary>Where are my messages and files kept?</summary><p>On the PC running LANDrop, in a folder called .landrop in your user folder, for example C:\Users\you\.landrop. Your messages and files are never sent to a server, and the chat stays until you clear it.</p></details>
+            <details data-os="mac"><summary>Where are my messages and files kept?</summary><p>On the Mac running LANDrop, in a folder called .landrop in your home folder. Your messages and files are never sent to a server, and the chat stays until you clear it. Each Wi-Fi network keeps its own history.</p></details>
+            <details data-os="win" hidden><summary>Where are my messages and files kept?</summary><p>On the PC running LANDrop, in a folder called .landrop in your user folder, for example C:\Users\you\.landrop. Your messages and files are never sent to a server, and the chat stays until you clear it. Each Wi-Fi network keeps its own history.</p></details>
             <details><summary>Does it need the internet?</summary><p>No. Devices only need to be on the same Wi-Fi or local network as the computer running LANDrop.</p></details>
+            <details><summary>What happens when I change Wi-Fi?</summary><p>Each network keeps its own history. Chats from home stay at home, and come back when the computer rejoins that network.</p></details>
+            <details><summary>How do I update LANDrop?</summary><p>LANDrop checks for new versions on its own and lets you know when one is ready. Choose Download and Install, watch the progress at the top of the window, then restart into the new version. You can also choose Check for Updates from the menu bar or tray icon.</p></details>
+            <details><summary>Does LANDrop collect any data?</summary><p>Your messages and files never leave your network. The Mac and Windows apps send one tiny anonymous count a day (a random number, the version, your system and a few totals) so the author can see whether it helps people. Turn it off with Share Anonymous Usage Statistics in the menu. <a href="privacy.html">See exactly what is shared.</a></p></details>
+            <details><summary>Is LANDrop open source?</summary><p>The code is public on GitHub so you can read how it works, but it isn't open source: it can't be copied, rebranded or redistributed. The app itself is free to use.</p></details>
           </div>
           <div>
             <details data-os="mac"><summary>macOS says it can't verify LANDrop</summary><p>LANDrop isn't notarized by Apple yet. Open it once, then go to System Settings, Privacy &amp; Security, and click Open Anyway. You only need to do this the first time.</p></details>
             <details data-os="win" hidden><summary>Windows says it protected my PC</summary><p>LANDrop isn't code-signed yet, so SmartScreen warns about it. Click More info, then Run anyway. You only need to do this the first time.</p></details>
             <details data-os="win" hidden><summary>A phone can't reach my Windows PC</summary><p>Windows Firewall is probably blocking it. Open Windows Security, Firewall &amp; network protection, Allow an app through firewall, find LANDrop and tick Private. Also check the phone is on the same Wi-Fi, and that this network is set to Private in Settings, Network &amp; internet, Wi-Fi.</p></details>
-            <details data-os="mac"><summary>I don't get notifications on my Mac</summary><p>Open System Settings, Notifications, choose LANDrop and switch on Allow Notifications. Also check Focus isn't on. In LANDrop, Settings, Notifications lets you turn alerts off, or hide the message text so a banner only says who wrote.</p></details>
-            <details data-os="win" hidden><summary>I don't get notifications on Windows</summary><p>Open Settings, System, Notifications and switch on LANDrop. Check Do not disturb is off. In LANDrop, Settings, Notifications lets you turn alerts off, or hide the message text so a banner only says who wrote.</p></details>
+            <details data-os="mac"><summary>I don't get notifications on my Mac</summary><p>Open System Settings, Notifications, choose LANDrop and switch on Allow Notifications. Also check Focus isn't on. In LANDrop's menu, Notify Me About New Messages turns alerts off, and Show Message Text in Notifications hides the text so a banner only says who wrote.</p></details>
+            <details data-os="win" hidden><summary>I don't get notifications on Windows</summary><p>Open Settings, System, Notifications and switch on LANDrop. Check Do not disturb is off. In LANDrop's menu, Notify Me About New Messages turns alerts off, and Show Message Text in Notifications hides the text so a banner only says who wrote.</p></details>
+            <details><summary>Can I put LANDrop on my phone's home screen?</summary><p>Yes. On a phone, open LANDrop in the browser and tap Install on the banner, then follow the three taps: the browser menu, Add to Home screen, Add. On iPhone, use Share, then Add to Home Screen. It then opens from its own icon.</p></details>
             <details><summary>A phone can't open LANDrop</summary><p>Check the phone is on the same Wi-Fi as the computer running LANDrop, not mobile data. On Android Chrome, turn off Settings, Privacy and security, Always use secure connections. LANDrop runs on your local network without https, and that setting blocks it.</p></details>
             <details data-os="mac"><summary>LANDrop stops working when my Mac sleeps</summary><p>A sleeping Mac can't answer other devices. From the menu bar icon, turn on Keep Mac Awake While Plugged In. Closing a laptop's lid still puts it to sleep.</p></details>
             <details data-os="win" hidden><summary>LANDrop stops working when my PC sleeps</summary><p>A sleeping PC can't answer other devices. From the tray icon, turn on Keep Computer Awake While Plugged In. Closing a laptop's lid may still put it to sleep.</p></details>

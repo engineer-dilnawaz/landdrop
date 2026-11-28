@@ -13,6 +13,8 @@ export interface UsagePing {
   guests: number;
   messages: number;
   files: number;
+  /** Those guest devices by kind of device, as counts only: iPhone or iPad, Android, computer, other. */
+  platforms: { ios: number; android: number; desktop: number; other: number };
 }
 
 export async function sendUsagePing(url: string, ping: UsagePing): Promise<void> {

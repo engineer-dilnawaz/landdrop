@@ -4,6 +4,7 @@ const OS = new Set(["darwin", "win32", "linux"]);
 const ARCH = new Set(["arm64", "x64"]);
 const clamp = (n) => (Number.isFinite(n) ? Math.max(0, Math.min(Math.trunc(n), 100_000)) : 0);
 const YEAR = 400 * 86_400;
+const PLATFORMS = ["ios", "android", "desktop", "other"];
 
 /**
  * The anonymous usage ping from the desktop app. Only counts are stored: for each day, how many distinct installs
@@ -39,7 +40,8 @@ module.exports = async function handler(request, response) {
         ["INCRBY", `sum:${day}:guests`, clamp(body.guests)],
         ["INCRBY", `sum:${day}:messages`, clamp(body.messages)],
         ["INCRBY", `sum:${day}:files`, clamp(body.files)],
-        ...["installs", "guests", "messages", "files"].map((k) => ["EXPIRE", `sum:${day}:${k}`, YEAR]),
+        ...PLATFORMS.map((k) => ["INCRBY", `sum:${day}:p:${k}`, clamp(body.platforms && body.platforms[k])]),
+        ...["installs", "guests", "messages", "files", ...PLATFORMS.map((k) => `p:${k}`)].map((k) => ["EXPIRE", `sum:${day}:${k}`, YEAR]),
       ]);
     }
     return response.status(204).end();

@@ -23,6 +23,11 @@ module.exports = async function handler(request, response) {
       store.run([["SMEMBERS", "set:os"], ["SMEMBERS", "set:v"], ["SMEMBERS", "set:c"]]),
     ]);
     const [oses, versions, countries] = sets;
+    const platformKeys = ["ios", "android", "desktop", "other"];
+    const platformSums = await store.run(days.flatMap((d) => platformKeys.map((k) => ["GET", `sum:${d}:p:${k}`])));
+    const guestsByPlatform = Object.fromEntries(
+      platformKeys.map((k, i) => [k, days.reduce((n, _, j) => n + Number(platformSums[j * platformKeys.length + i] || 0), 0)]),
+    );
     const breakdown = async (prefix, names) => {
       const results = await store.run(names.map((n) => ["PFCOUNT", ...days.map((d) => `act:${d}:${prefix}:${n}`)]));
       return Object.fromEntries(names.map((n, i) => [n, results[i]]).sort((a, b) => b[1] - a[1]));
@@ -45,7 +50,7 @@ module.exports = async function handler(request, response) {
         files: Number(sums[i * 4 + 3] || 0),
       }))
       .reverse();
-    return response.status(200).json({ configured: true, active7, active30, series, byOs, byVersion, byCountry, downloads });
+    return response.status(200).json({ configured: true, active7, active30, series, byOs, byVersion, byCountry, guestsByPlatform, downloads });
   } catch (err) {
     return response.status(500).json({ message: String(err.message || err) });
   }

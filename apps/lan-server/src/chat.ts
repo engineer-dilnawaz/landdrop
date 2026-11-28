@@ -143,6 +143,19 @@ const ADDED_COLUMNS = [
   "att_folder_files INTEGER",
 ];
 
+/** The kinds of device counted in the anonymous usage totals. */
+export const GUEST_PLATFORMS = ["ios", "android", "desktop", "other"] as const;
+export type GuestPlatform = (typeof GUEST_PLATFORMS)[number];
+
+/** What kind of device a browser's identification string says it is. Only this answer is kept, never the string. */
+export function platformOf(userAgent: string | undefined): GuestPlatform {
+  const ua = userAgent ?? "";
+  if (/iPhone|iPad|iPod/.test(ua)) return "ios";
+  if (/Android/.test(ua)) return "android";
+  if (/Windows|Macintosh|X11|Linux|CrOS/.test(ua)) return "desktop";
+  return "other";
+}
+
 const REPLY_PREVIEW_LENGTH = 120;
 const IDLE_DEVICE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -176,6 +189,7 @@ export class ChatStore {
     const deviceColumns = (db.prepare("PRAGMA table_info(devices)").all() as { name: string }[]).map((c) => c.name);
     if (!deviceColumns.includes("machine")) db.exec("ALTER TABLE devices ADD COLUMN machine TEXT");
     if (!deviceColumns.includes("avatar_at")) db.exec("ALTER TABLE devices ADD COLUMN avatar_at INTEGER");
+    if (!deviceColumns.includes("platform")) db.exec("ALTER TABLE devices ADD COLUMN platform TEXT");
     await mkdir(join(dataDir, "avatars"), { recursive: true });
     const store = new ChatStore(db, filesDir, join(dataDir, "avatars"), broadcast);
     await store.failInterruptedUploads();
@@ -237,16 +251,27 @@ export class ChatStore {
     return true;
   }
 
+  /** What kind of device last connected, for the usage counts only; never shown to anyone. */
+  setPlatform(id: string, platform: GuestPlatform): void {
+    this.db.prepare("UPDATE devices SET platform = ? WHERE id = ?").run(platform, id);
+  }
+
   /**
-   * Counts only, for the anonymous usage ping: other devices seen, messages and files sent since then.
+   * Counts only, for the anonymous usage ping: other devices seen (and what kind), messages and files sent since then.
    * The host's own chat window isn't a guest, so it isn't counted. Nothing about their content leaves here.
    */
-  usageSince(since: number): { devices: number; messages: number; files: number } {
+  usageSince(since: number): { devices: number; messages: number; files: number; platforms: Record<GuestPlatform, number> } {
     const count = (sql: string) => (this.db.prepare(sql).get(since) as { n: number }).n;
+    const platforms: Record<GuestPlatform, number> = { ios: 0, android: 0, desktop: 0, other: 0 };
+    const rows = this.db
+      .prepare("SELECT platform, COUNT(*) AS n FROM devices WHERE last_seen >= ? AND (machine IS NULL OR machine != 'host') GROUP BY platform")
+      .all(since) as { platform: string | null; n: number }[];
+    for (const { platform, n } of rows) platforms[(GUEST_PLATFORMS as readonly string[]).includes(platform ?? "") ? (platform as GuestPlatform) : "other"] += n;
     return {
       devices: count("SELECT COUNT(*) AS n FROM devices WHERE last_seen >= ? AND (machine IS NULL OR machine != 'host')"),
       messages: count("SELECT COUNT(*) AS n FROM messages WHERE created_at >= ?"),
       files: count("SELECT COUNT(*) AS n FROM messages WHERE created_at >= ? AND att_name IS NOT NULL"),
+      platforms,
     };
   }
 

@@ -22,7 +22,8 @@
     .bars div { flex: 1; background: var(--signal); border-radius: 3px 3px 0 0; min-height: 2px; opacity: .85; }
     .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); }
     .row:last-child { border: 0; }
-    form { display: flex; gap: 8px; max-width: 420px; }
+    form { display: flex; gap: 8px; max-width: 420px; margin-bottom: 20px; }
+    form[hidden] { display: none; }
     input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; }
     button { padding: 10px 16px; border-radius: 10px; border: 0; background: var(--signal); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
     .err { color: #dc2626; margin-top: 10px; }
@@ -43,7 +44,7 @@
     var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]; }); };
     var sum = function (arr, k) { return arr.reduce(function (n, d) { return n + d[k]; }, 0); };
     var list = function (title, obj) {
-      var rows = Object.entries(obj || {}).map(function (e) { return '<div class="row"><span>' + esc(e[0]) + "</span><strong>" + e[1] + "</strong></div>"; }).join("");
+      var rows = Object.entries(obj || {}).map(function (e) { return '<div class="row"><span>' + esc(e[0] === "ZZ" ? "Unknown" : e[0]) + "</span><strong>" + e[1].toLocaleString() + "</strong></div>"; }).join("");
       return '<div class="card"><h2>' + title + "</h2>" + (rows || '<span class="sub">No data yet</span>') + "</div>";
     };
     function render(d) {
@@ -62,7 +63,7 @@
         s.map(function (x) { return '<div title="' + x.day + ": " + x.active + '" style="height:' + Math.max(2, (x.active / max) * 100) + '%"></div>'; }).join("") +
         '</div></div><div class="grid">' +
         '<div class="card"><h2>30-day totals</h2><div class="row"><span>Messages</span><strong>' + sum(s, "messages") + '</strong></div><div class="row"><span>Files shared</span><strong>' + sum(s, "files") + '</strong></div><div class="row"><span>Guest devices</span><strong>' + sum(s, "guests") + "</strong></div></div>" +
-        list("Countries", d.byCountry) + list("System", d.byOs) + list("Versions", d.byVersion) +
+        list("Countries", d.byCountry) + list("Hosts: Mac or Windows", d.byOs) + list("Guests joining (30 days)", { "iPhone or iPad": (d.guestsByPlatform || {}).ios || 0, Android: (d.guestsByPlatform || {}).android || 0, "Computer browser": (d.guestsByPlatform || {}).desktop || 0, Other: (d.guestsByPlatform || {}).other || 0 }) + list("Versions", d.byVersion) +
         list("Downloads by file", dl.byAsset) + list("Downloads by release", dl.byRelease) + "</div>";
       out.hidden = false;
     }

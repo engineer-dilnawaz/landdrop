@@ -10,7 +10,7 @@ import { BrowserWindow, Menu, Notification, Tray, app, nativeImage, clipboard, d
 import QRCode from "qrcode";
 import { describeMessage, isNewer, releaseFrom, type Release } from "./notices";
 import { MAX_SCREENSHOTS, parseReport, saveReport } from "./reports";
-import { sendUsagePing } from "./usage";
+import { sendUsagePing, type UsagePing } from "./usage";
 import { canReplaceInPlace, checksumOf, downloadInstaller, installOnMac, installOnWindows, runningBundle } from "./updater";
 
 /**
@@ -427,7 +427,7 @@ async function reportUsage() {
   }
   const counts = (await fetch(`http://localhost:${PORT}${routes.usage}`)
     .then((r) => (r.ok ? r.json() : undefined))
-    .catch(() => undefined)) as { devices?: number; messages?: number; files?: number } | undefined;
+    .catch(() => undefined)) as { devices?: number; messages?: number; files?: number; platforms?: Partial<UsagePing["platforms"]> } | undefined;
   await sendUsagePing(USAGE_URL, {
     id: settings.installId,
     version: app.getVersion(),
@@ -436,6 +436,12 @@ async function reportUsage() {
     guests: counts?.devices ?? 0,
     messages: counts?.messages ?? 0,
     files: counts?.files ?? 0,
+    platforms: {
+      ios: counts?.platforms?.ios ?? 0,
+      android: counts?.platforms?.android ?? 0,
+      desktop: counts?.platforms?.desktop ?? 0,
+      other: counts?.platforms?.other ?? 0,
+    },
   });
 }
 

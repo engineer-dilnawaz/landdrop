@@ -153,3 +153,7 @@ npm start --workspace @landrop/lan-server
 ## Author
 
 Built by [Dilnawaz Khan](https://github.com/engineer-dilnawaz).
+
+## Licence
+
+Copyright © 2026 Dilnawaz Khan. All rights reserved. The source is public so you can read how LANDrop works, but it is not open source: you may not copy, redistribute or rebrand it. See [LICENSE](LICENSE). The app itself is free to download and use.

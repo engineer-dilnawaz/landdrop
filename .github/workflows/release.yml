@@ -2,11 +2,11 @@ name: Release
 
 # Every push to main builds the installers and publishes them as a GitHub release.
 # The version is 0.2.<run number>, so it only ever goes up, which "Check for Updates" relies on.
-# Changes that touch only docs or the websites (site/ and apps/site/) don't need new installers.
+# Changes that touch only docs, the websites (site/ and apps/site/) or the website's server functions (api/) don't need new installers.
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md", "docs/**", "site/**", "apps/site/**"]
+    paths-ignore: ["**.md", "docs/**", "site/**", "apps/site/**", "api/**", "vercel.json", "LICENSE"]
 
 env:
   VERSION: 0.2.${{ github.run_number }}

@@ -1,11 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { MAX_DEVICE_NAME_LENGTH } from "@landrop/protocol";
+import {
+  FEEDBACK_AREAS,
+  FEEDBACK_FREQUENCIES,
+  FEEDBACK_KINDS,
+  FEEDBACK_TAGS,
+  MAX_DEVICE_NAME_LENGTH,
+  MAX_FEEDBACK_LENGTH,
+  type FeedbackArea,
+  type FeedbackDevice,
+  type FeedbackFrequency,
+  type FeedbackKind,
+  type FeedbackRequest,
+  type FeedbackTag,
+} from "@landrop/protocol";
 import { useInstallApp } from "./install-app";
 import { CropSheet } from "./crop-sheet";
+import { deviceDetails, deviceLines } from "./device-details";
 import { AVATARS, AvatarArt, avatarPicture,  type AvatarId } from "./avatars";
-import { Avatar, BackIcon, BellIcon, CameraIcon, ChatsIcon, DoubleTickIcon, FILLED_BUTTON, ICON_BUTTON, ImageIcon, InstallIcon, PeopleIcon, Sheet, SunIcon, TickIcon, UserIcon } from "./ui";
+import { Avatar, BackIcon, BellIcon, CameraIcon, ChatsIcon, ChevronIcon, DoubleTickIcon, FILLED_BUTTON, ICON_BUTTON, ImageIcon, InstallIcon, NewChatIcon, PeopleIcon, Sheet, SunIcon, TickIcon, UserIcon } from "./ui";
 
 export type Theme = "system" | "light" | "dark";
 
@@ -87,13 +101,14 @@ const THEMES = [
 const useTheme = () => useSyncExternalStore(subscribe, readTheme, (): Theme => "system");
 
 /** WhatsApp-style settings, shown in the list column. Sections get added here as features land. */
-export type SettingsPage = "profile" | "appearance" | "chats" | "notifications";
+export type SettingsPage = "profile" | "appearance" | "chats" | "notifications" | "feedback";
 
 const PAGES: { id: SettingsPage; label: string; hint: string; icon: ReactNode }[] = [
   { id: "profile", label: "Profile", hint: "Your name and avatar", icon: <PeopleIcon /> },
   { id: "appearance", label: "Appearance", hint: "Light, dark or follow this device", icon: <SunIcon /> },
   { id: "chats", label: "Chats", hint: "Colour, text size and wallpaper", icon: <ChatsIcon /> },
   { id: "notifications", label: "Notifications", hint: "Alerts for new messages", icon: <BellIcon /> },
+  { id: "feedback", label: "Send feedback", hint: "Report a problem or suggest an idea", icon: <NewChatIcon /> },
 ];
 
 /** Pop-up alerts come from the host app, so only its own window has that page. */
@@ -170,6 +185,7 @@ export function SettingsDetail({
   selfId,
   onRename,
   onPhoto,
+  onFeedback,
   onBack,
 }: {
   page: SettingsPage;
@@ -179,6 +195,8 @@ export function SettingsDetail({
   onRename: (name: string) => void;
   /** A new profile photo, or undefined to remove it. */
   onPhoto: (photo: Blob | undefined) => void;
+  /** Sends feedback to the developer through the host; rejects with a message to show. */
+  onFeedback: (feedback: FeedbackRequest) => Promise<void>;
   /** Phones only: back to the list. */
   onBack: () => void;
 }) {
@@ -197,9 +215,197 @@ export function SettingsDetail({
           {page === "appearance" && <AppearancePage />}
           {page === "chats" && <ChatLooks />}
           {page === "notifications" && <HostNotifications />}
+          {page === "feedback" && <FeedbackPage onSend={onFeedback} />}
         </div>
       </div>
     </div>
+  );
+}
+
+const FEEDBACK_LABELS: Record<FeedbackKind, string> = { problem: "Problem", idea: "Idea", other: "Something else" };
+const AREA_LABELS: Record<FeedbackArea, string> = {
+  joining: "Joining or the QR code",
+  sending: "Sending files",
+  chat: "Chat and messages",
+  folders: "Folders",
+  install: "Installing or updating",
+  other: "Something else",
+};
+const FREQUENCY_LABELS: Record<FeedbackFrequency, string> = { always: "Every time", sometimes: "Sometimes", once: "Just once" };
+const TAG_LABELS: Record<FeedbackTag, string> = {
+  "wont-connect": "Won't connect",
+  slow: "Too slow",
+  froze: "Froze or crashed",
+  failed: "File didn't arrive",
+  confusing: "Confusing",
+  "looks-wrong": "Looks wrong",
+};
+
+/** Report a problem, suggest an idea or say anything else, mostly by choosing. It goes to the developer through the host computer. */
+function FeedbackPage({ onSend }: { onSend: (feedback: FeedbackRequest) => Promise<void> }) {
+  const [kind, setKind] = useState<FeedbackKind>("problem");
+  const [area, setArea] = useState<FeedbackArea | "">("");
+  const [frequency, setFrequency] = useState<FeedbackFrequency>();
+  const [tags, setTags] = useState<FeedbackTag[]>([]);
+  const [message, setMessage] = useState("");
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+  const [error, setError] = useState<string>();
+  // Read after the page loads: a browser's details are not known while the page is built, and the LANDrop app adds its own system.
+  const [details, setDetails] = useState<FeedbackDevice>();
+  useEffect(() => {
+    let live = true;
+    const info = window.landrop?.app?.info();
+    void (info ?? Promise.resolve(undefined)).then((host) => live && setDetails(deviceDetails(host?.system)));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const problem = kind === "problem";
+  const ready = (message.trim().length >= 3 || (problem && tags.length > 0)) && state !== "sending";
+  const toggleTag = (tag: FeedbackTag) => setTags((current) => (current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag]));
+
+  async function send() {
+    setState("sending");
+    setError(undefined);
+    try {
+      await onSend({
+        kind,
+        area: area || undefined,
+        ...(problem && { frequency, tags }),
+        message: message.trim() || undefined,
+        device: details,
+        email: email.trim() || undefined,
+      });
+      setMessage("");
+      setTags([]);
+      setFrequency(undefined);
+      setState("sent");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send that");
+      setState("idle");
+    }
+  }
+
+  if (state === "sent") {
+    return (
+      <section className="px-5 py-10 text-center">
+        <p className="text-[18px] font-medium">Thank you</p>
+        <p className="mt-1 text-[14px] text-muted">It reached the developer, who reads every one.</p>
+        <button onClick={() => setState("idle")} className={`${FILLED_BUTTON} mt-6`}>
+          Send another
+        </button>
+      </section>
+    );
+  }
+
+  const chip = (on: boolean) => `flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[14px] transition-colors ${on ? "bg-accent-fill text-white" : "bg-field hover:bg-hover"}`;
+  const label = "mt-5 mb-2 text-[13px] font-medium text-muted";
+  return (
+    <section className="px-5 py-5">
+      <p className="text-[13px] text-muted">
+        Pick what fits, and add a few words only if you want to. Only your choices, your words and the device details below are sent. Never your chats or files.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label="What is this about">
+        {FEEDBACK_KINDS.map((k) => (
+          <button key={k} role="radio" aria-checked={kind === k} onClick={() => setKind(k)} className={chip(kind === k)}>
+            {FEEDBACK_LABELS[k]}
+          </button>
+        ))}
+      </div>
+
+      <p className={label}>Which part?</p>
+      <div className="relative">
+        <select
+          value={area}
+          onChange={(e) => setArea(e.target.value as FeedbackArea | "")}
+          aria-label="Which part of LANDrop"
+          className={`h-12 w-full appearance-none rounded-2xl bg-field pl-4 pr-11 text-[16px] outline-none transition-colors focus:bg-hover ${area ? "" : "text-muted"}`}
+        >
+          <option value="">Choose one</option>
+          {FEEDBACK_AREAS.map((a) => (
+            <option key={a} value={a}>
+              {AREA_LABELS[a]}
+            </option>
+          ))}
+        </select>
+        <span aria-hidden className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-muted">
+          <ChevronIcon />
+        </span>
+      </div>
+
+      {problem && (
+        <>
+          <p className={label}>What happened?</p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="What happened">
+            {FEEDBACK_TAGS.map((t) => (
+              <button key={t} role="checkbox" aria-checked={tags.includes(t)} onClick={() => toggleTag(t)} className={chip(tags.includes(t))}>
+                {tags.includes(t) && <TickIcon />}
+                {TAG_LABELS[t]}
+              </button>
+            ))}
+          </div>
+          <p className={label}>How often?</p>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="How often">
+            {FEEDBACK_FREQUENCIES.map((f) => (
+              <button key={f} role="radio" aria-checked={frequency === f} onClick={() => setFrequency(f)} className={chip(frequency === f)}>
+                {FREQUENCY_LABELS[f]}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <p className={label}>{problem ? "Anything else? (optional)" : "Tell us a little"}</p>
+      <textarea
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        maxLength={MAX_FEEDBACK_LENGTH}
+        rows={4}
+        aria-label="Your message"
+        placeholder={problem ? "What were you trying to do?" : kind === "idea" ? "What would make LANDrop better for you?" : "Anything you like"}
+        className="w-full resize-none rounded-2xl bg-field p-4 text-[16px] outline-none transition-colors placeholder:text-muted focus:bg-hover"
+      />
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        maxLength={120}
+        aria-label="Email, optional"
+        placeholder="Email (optional, only if you want a reply)"
+        className="mt-3 h-12 w-full rounded-2xl bg-field px-4 text-[16px] outline-none transition-colors placeholder:text-muted focus:bg-hover"
+      />
+      {details && (
+        <details className="group mt-4 rounded-2xl bg-field px-4 py-3" aria-label="Device details sent with your feedback">
+          <summary className="flex cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden">
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium">Your device details will be sent too</span>
+              <span className="block truncate text-[12px] text-muted">{[details.device, details.os, details.browser].filter(Boolean).join(" · ")}</span>
+            </span>
+            <span aria-hidden className="shrink-0 text-muted transition-transform duration-200 group-open:rotate-180">
+              <ChevronIcon />
+            </span>
+          </summary>
+          <p className="mt-3 text-[12px] text-muted">So the problem can be reproduced. No name, no network and no address.</p>
+          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-[13px]">
+            {deviceLines(details).map((line) => (
+              <div key={line.label} className="contents">
+                <dt className="text-muted">{line.label}</dt>
+                <dd className="break-words">{line.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      )}
+      {error && (
+        <p role="alert" className="mt-3 text-[14px] text-red-600">
+          {error}
+        </p>
+      )}
+      <button onClick={() => void send()} disabled={!ready} className={`${FILLED_BUTTON} mt-4`}>
+        {state === "sending" ? "Sending…" : "Send"}
+      </button>
+    </section>
   );
 }
 

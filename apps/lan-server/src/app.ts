@@ -23,6 +23,8 @@ import {
   PROTOCOL_VERSION,
   SubmitChecksumRequestSchema,
   UpdateChatMetaRequestSchema,
+  FeedbackRequestSchema,
+  type Feedback,
   UpdateGroupRequestSchema,
   previewKind,
   routes,
@@ -62,6 +64,11 @@ export interface AppOptions {
    * so the host app can tell its user about it. `groupName` is set when the chat is a group.
    */
   onMessage?: (event: { message: Message; groupName?: string }) => void;
+  /**
+   * Passes a device's feedback on to the developer; true if it was sent. Without it (tests, a development build),
+   * the feedback route answers that it is not available.
+   */
+  onFeedback?: (feedback: Feedback & { platform: string }) => Promise<boolean>;
 }
 
 interface Session {
@@ -95,6 +102,7 @@ export async function buildApp({
   scanNetwork = scanHostNetwork,
   machineOf = async (address) => (isHost(address) ? "host" : hardwareAddressOf(address)),
   onMessage,
+  onFeedback,
 }: AppOptions) {
   const app = Fastify({
     // Shutdown must not wait on a client that never finishes reading a response (e.g. a sleeping phone).
@@ -396,6 +404,20 @@ export async function buildApp({
     const { device } = authenticate(request);
     const { name, members } = parse(CreateGroupRequestSchema, request.body);
     return reply.code(201).send(store.createGroup(device.id, name, members));
+  });
+
+  // A device may send a few a day; that is plenty for feedback and stops a stuck button flooding the developer.
+  const feedbackSent = new Map<string, number[]>();
+  app.post(routes.feedback, async (request, reply) => {
+    const { device } = authenticate(request);
+    const input = parse(FeedbackRequestSchema, request.body);
+    if (!onFeedback) throw new HttpError(503, "Feedback is not available in this build");
+    const recent = (feedbackSent.get(device.id) ?? []).filter((at) => Date.now() - at < 60 * 60 * 1000);
+    if (recent.length >= 5) throw new HttpError(429, "You have sent a few already. Try again in a while.");
+    const sent = await onFeedback({ ...input, platform: isHost(request.socket.remoteAddress) ? "desktop" : platformOf(request.headers["user-agent"]) });
+    if (!sent) throw new HttpError(502, "Could not send that. Check this computer's internet and try again.");
+    feedbackSent.set(device.id, [...recent, Date.now()]);
+    return reply.code(204).send();
   });
 
   app.patch<{ Params: MessageParams }>(routes.group(":id"), async (request) => {

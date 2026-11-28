@@ -27,6 +27,12 @@
     input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; }
     button { padding: 10px 16px; border-radius: 10px; border: 0; background: var(--signal); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
     .err { color: #dc2626; margin-top: 10px; }
+    .fb { padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .fb:last-child { border: 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+    .chips span { background: var(--line); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
+    .fb p { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    a { color: var(--signal); }
   </style>
 </head>
 <body>
@@ -47,6 +53,18 @@
       var rows = Object.entries(obj || {}).map(function (e) { return '<div class="row"><span>' + esc(e[0] === "ZZ" ? "Unknown" : e[0]) + "</span><strong>" + e[1].toLocaleString() + "</strong></div>"; }).join("");
       return '<div class="card"><h2>' + title + "</h2>" + (rows || '<span class="sub">No data yet</span>') + "</div>";
     };
+    var KIND = { problem: "Problem", idea: "Idea", other: "Other" };
+    var PLATFORM = { ios: "iPhone or iPad", android: "Android", desktop: "Computer", other: "Other" };
+    var AREA = { joining: "Joining or QR code", sending: "Sending files", chat: "Chat and messages", folders: "Folders", install: "Installing or updating", other: "Something else" };
+    var FREQ = { always: "Every time", sometimes: "Sometimes", once: "Just once" };
+    var TAG = { "wont-connect": "Won't connect", slow: "Too slow", froze: "Froze or crashed", failed: "File didn't arrive", confusing: "Confusing", "looks-wrong": "Looks wrong" };
+    function feedbackCard(items) {
+      var rows = items.map(function (f) {
+        var meta = [KIND[f.kind] || f.kind, f.source === "app" ? "from the app" : "from the website", PLATFORM[f.platform], f.version && "v" + f.version, f.os, new Date(f.at).toLocaleString()].filter(Boolean).map(esc).join(" · ");
+        return '<div class="fb"><div class="sub">' + meta + "</div>" + (f.device ? '<div class="sub">' + ["device", "os", "browser", "screen", "language"].map(function (k) { return f.device[k]; }).filter(Boolean).map(esc).join(" · ") + "</div>" : "") + (f.area || f.frequency || (f.tags && f.tags.length) ? '<div class="chips">' + [AREA[f.area], FREQ[f.frequency]].concat((f.tags || []).map(function (t) { return TAG[t]; })).filter(Boolean).map(function (c) { return "<span>" + esc(c) + "</span>"; }).join("") + "</div>" : "") + (f.message ? "<p>" + esc(f.message) + "</p>" : "") + (f.email ? '<div class="sub">Reply to: <a href="mailto:' + esc(f.email) + '">' + esc(f.email) + "</a></div>" : "") + "</div>";
+      }).join("");
+      return '<div class="card" style="margin-top:16px"><h2>Feedback (' + items.length + ")</h2>" + (rows || '<span class="sub">Nothing yet</span>') + "</div>";
+    }
     function render(d) {
       if (!d.configured) { out.innerHTML = '<div class="card">The store is not connected yet. Add the Upstash Redis integration to the Vercel project.</div>'; return; }
       var s = d.series, max = Math.max.apply(null, s.map(function (x) { return x.active; }).concat([1]));
@@ -64,7 +82,7 @@
         '</div></div><div class="grid">' +
         '<div class="card"><h2>30-day totals</h2><div class="row"><span>Messages</span><strong>' + sum(s, "messages") + '</strong></div><div class="row"><span>Files shared</span><strong>' + sum(s, "files") + '</strong></div><div class="row"><span>Guest devices</span><strong>' + sum(s, "guests") + "</strong></div></div>" +
         list("Countries", d.byCountry) + list("Hosts: Mac or Windows", d.byOs) + list("Guests joining (30 days)", { "iPhone or iPad": (d.guestsByPlatform || {}).ios || 0, Android: (d.guestsByPlatform || {}).android || 0, "Computer browser": (d.guestsByPlatform || {}).desktop || 0, Other: (d.guestsByPlatform || {}).other || 0 }) + list("Versions", d.byVersion) +
-        list("Downloads by file", dl.byAsset) + list("Downloads by release", dl.byRelease) + "</div>";
+        list("Downloads by file", dl.byAsset) + list("Downloads by release", dl.byRelease) + "</div>" + feedbackCard(d.feedback || []);
       out.hidden = false;
     }
     function load(token) {

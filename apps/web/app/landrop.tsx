@@ -1072,6 +1072,7 @@ export default function LanDrop() {
               selfId={selfId}
               onRename={rename}
               onPhoto={(photo) => void setPhoto(photo)}
+              onFeedback={(feedback) => api<void>(routes.feedback, "POST", feedback)}
               onBack={() => setSettingsPage(undefined)}
             />
           ) : activeChat ? (

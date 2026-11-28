@@ -9,8 +9,7 @@ import { DEFAULT_LAN_PORT, routes } from "@landrop/protocol";
 import { BrowserWindow, Menu, Notification, Tray, app, nativeImage, clipboard, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell, ShareMenu, type MenuItemConstructorOptions } from "electron";
 import QRCode from "qrcode";
 import { describeMessage, isNewer, releaseFrom, type Release } from "./notices";
-import { MAX_SCREENSHOTS, parseReport, saveReport } from "./reports";
-import { sendUsagePing, type UsagePing } from "./usage";
+import { sendFeedback, sendUsagePing, type UsagePing } from "./usage";
 import { canReplaceInPlace, checksumOf, downloadInstaller, installOnMac, installOnWindows, runningBundle } from "./updater";
 
 /**
@@ -31,6 +30,8 @@ const COMPUTER = MAC ? "Mac" : "computer";
 const TRAY = MAC ? "menu bar" : "system tray";
 const REPO = "engineer-dilnawaz/landrop";
 const WEBSITE = "https://landdrop.vercel.app";
+// Overridable so feedback can be tried against a local stand-in; a development build never sends it otherwise.
+const FEEDBACK_API = process.env.LANDROP_FEEDBACK_URL ?? `${WEBSITE}/api/feedback`;
 // Overridable so the update flow can be tried against a local stand-in for GitHub.
 // Overridable so the ping can be tried against a local stand-in; a development build never pings otherwise.
 const USAGE_URL = process.env.LANDROP_USAGE_URL ?? `${WEBSITE}/api/ping`;
@@ -73,7 +74,6 @@ let downloadAbort: AbortController | undefined;
 let tray: Tray | undefined;
 let qrWindow: BrowserWindow | undefined;
 let chatWindow: BrowserWindow | undefined;
-let reportWindow: BrowserWindow | undefined;
 let awakeBlocker: number | undefined;
 
 // Settings and the chat window's storage live in "Application Support/LANDrop", not under the package's name.
@@ -109,6 +109,16 @@ async function start() {
       port: PORT,
       webDir: existsSync(join(WEB_DIR, "index.html")) ? WEB_DIR : undefined,
       onMessage: notifyMessage,
+      onFeedback: async (feedback) => {
+        if (!app.isPackaged && !process.env.LANDROP_FEEDBACK_URL) return false;
+        return sendFeedback(FEEDBACK_API, {
+          ...feedback,
+          source: "app",
+          install: settings.usage ? settings.installId : undefined,
+          version: app.getVersion(),
+          os: process.platform,
+        });
+      },
     });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") return fail(err);
@@ -130,17 +140,6 @@ async function start() {
   // Rebuilt on focus, so its checkboxes match changes made from the menu bar icon.
   app.on("browser-window-focus", () => Menu.setApplicationMenu(appMenu()));
   Menu.setApplicationMenu(appMenu());
-  ipcMain.handle("report:submit", (event, input) => {
-    // Only the report form may save reports.
-    if (event.sender !== reportWindow?.webContents) return false;
-    const report = parseReport(input);
-    if (!report) return false;
-    saveReport(join(app.getPath("userData"), "reports.db"), report, {
-      appVersion: app.getVersion(),
-      osVersion: `${MAC ? "macOS" : process.platform} ${process.getSystemVersion()} (${release()})`,
-    });
-    return true;
-  });
   // Only the chat window's settings page may read or change these.
   const notificationSettings = () => ({ notifications: settings.notifications, previews: settings.previews });
   ipcMain.handle("notifications:get", (event) => (event.sender === chatWindow?.webContents ? notificationSettings() : undefined));
@@ -163,7 +162,7 @@ async function start() {
     if (fromChat(event) && MOCK_UPDATE) mockUpdate(1);
   });
   if (MOCK_UPDATE) mockUpdate(0);
-  ipcMain.handle("app:info", (event) => (fromChat(event) ? { version: app.getVersion(), previous: settings.lastRunVersion } : undefined));
+  ipcMain.handle("app:info", (event) => (fromChat(event) ? { version: app.getVersion(), previous: settings.lastRunVersion, system: systemLine() } : undefined));
   ipcMain.handle("app:seen", (event) => {
     if (!fromChat(event)) return;
     settings.lastRunVersion = app.getVersion();
@@ -337,7 +336,6 @@ function appMenu(): Menu {
       submenu: [
         { label: "LANDrop Website", click: () => void shell.openExternal(WEBSITE) },
         { label: "Release Notes", click: () => void shell.openExternal(`https://github.com/${REPO}/releases`) },
-        { label: "Report a Problem…", click: () => void showReportForm() },
       ],
     },
   ]);
@@ -419,6 +417,13 @@ function mockUpdate(step: 0 | 1) {
 }
 
 /** Sends today's anonymous usage ping, unless it's turned off or this is a development build. */
+/** This computer as shown to the person sending feedback, for example "macOS 15.2 (Apple silicon)". */
+function systemLine(): string {
+  const name = MAC ? "macOS" : process.platform === "win32" ? "Windows" : "Linux";
+  const chip = process.arch === "arm64" ? (MAC ? "Apple silicon" : "ARM") : MAC ? "Intel" : "64-bit";
+  return `${name} ${process.getSystemVersion()} (${chip})`;
+}
+
 async function reportUsage() {
   if (!settings.usage || (!app.isPackaged && !process.env.LANDROP_USAGE_URL)) return;
   if (!settings.installId) {
@@ -612,151 +617,6 @@ function openChat() {
 /** The join QR code as a PNG, the same code the QR window shows. */
 function qrImage(url: string): Promise<Buffer> {
   return QRCode.toBuffer(url, { margin: 2, width: 960, errorCorrectionLevel: "M" });
-}
-
-async function showReportForm() {
-  if (reportWindow) {
-    reportWindow.show();
-    app.focus({ steal: true });
-    return;
-  }
-  reportWindow = new BrowserWindow({
-    width: 460,
-    height: 680,
-    resizable: false,
-    title: "Report a Problem",
-    show: false,
-    webPreferences: { preload: join(__dirname, "preload.cjs") },
-  });
-  reportWindow.on("closed", () => (reportWindow = undefined));
-  trackWindow(reportWindow);
-  reportWindow.once("ready-to-show", () => {
-    reportWindow?.show();
-    app.focus({ steal: true });
-  });
-  await reportWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(reportPage())}`);
-}
-
-/** The report form. Everything typed goes through the preload's submitReport, which the main process checks. */
-function reportPage(): string {
-  const about = `LANDrop ${app.getVersion()} · macOS ${process.getSystemVersion()}`;
-  return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Report a Problem</title>
-<style>
-  :root { color-scheme: light dark; --muted: #6e6e73; --field: #fff; --line: #d2d2d7; --accent: #00a884; }
-  @media (prefers-color-scheme: dark) { :root { --muted: #98989d; --field: #2c2c2e; --line: #3a3a3c; } }
-  * { box-sizing: border-box; }
-  body { margin: 0; padding: 22px 24px; font: 13px -apple-system, system-ui, sans-serif; background: Canvas; color: CanvasText; }
-  h1 { font-size: 17px; margin: 0 0 4px; }
-  p { color: var(--muted); margin: 0; line-height: 1.4; }
-  label { display: block; margin-top: 16px; font-weight: 500; }
-  .kinds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; padding: 3px; border-radius: 9px; background: var(--line); }
-  .kinds input { position: absolute; opacity: 0; }
-  .kinds span { display: block; padding: 5px 0; text-align: center; border-radius: 7px; cursor: default; font-weight: 400; }
-  .kinds input:checked + span { background: var(--field); font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
-  .kinds input:focus-visible + span { outline: 2px solid var(--accent); }
-  input[type=text], input[type=email], textarea { display: block; width: 100%; margin-top: 6px; padding: 7px 9px; font: inherit; color: inherit;
-    background: var(--field); border: 1px solid var(--line); border-radius: 7px; outline: none; }
-  input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
-  textarea { height: 150px; resize: none; }
-  .about { margin-top: 14px; font-size: 12px; }
-  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-  button { font: inherit; padding: 6px 16px; border-radius: 7px; border: 1px solid var(--line); background: var(--field); color: inherit; }
-  button[type=submit] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
-  button:disabled { opacity: .5; }
-  .shots { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
-  .shot { position: relative; width: 72px; height: 54px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
-  .shot img { width: 100%; height: 100%; object-fit: cover; }
-  .shot button { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 0;
-    background: rgba(0,0,0,.6); color: #fff; font-size: 12px; line-height: 18px; }
-  .hint { font-size: 12px; }
-  body.dragging form { outline: 2px dashed var(--accent); outline-offset: -8px; border-radius: 10px; }
-  .error { color: #e5484d; margin-top: 10px; display: none; }
-  .done { display: none; text-align: center; padding-top: 140px; }
-  .done h1 { margin-bottom: 8px; }
-  body.sent form { display: none; } body.sent .done { display: block; }
-</style></head><body>
-  <form id="form">
-    <h1>Report a Problem</h1>
-    <p>Tell us what went wrong or what you'd like LANDrop to do.</p>
-    <div class="kinds" role="radiogroup" aria-label="Type">
-      <label style="margin:0"><input type="radio" name="kind" value="problem" checked><span>Problem</span></label>
-      <label style="margin:0"><input type="radio" name="kind" value="idea"><span>Idea</span></label>
-      <label style="margin:0"><input type="radio" name="kind" value="other"><span>Other</span></label>
-    </div>
-    <label>Summary<input type="text" name="summary" maxlength="200" required placeholder="Photos from my phone don't arrive" autofocus></label>
-    <label>What happened<textarea name="details" maxlength="5000" placeholder="What you did, what you expected, and what happened instead."></textarea></label>
-    <label>Email <span style="color:var(--muted);font-weight:400">(optional, if you'd like a reply)</span><input type="email" name="contact" maxlength="200" placeholder="you@example.com"></label>
-    <label>Screenshots <span style="color:var(--muted);font-weight:400">(optional, up to ${MAX_SCREENSHOTS})</span></label>
-    <div class="shots" id="shots">
-      <button type="button" id="attach">Attach Screenshot…</button>
-      <input type="file" id="picker" accept="image/png,image/jpeg,image/gif,image/webp,image/heic" multiple hidden>
-    </div>
-    <p class="hint">You can also paste a screenshot or drop one here.</p>
-    <p class="about">Sent with the report: ${about}</p>
-    <p class="error" id="error">The report couldn't be saved. Check the summary, and that each screenshot is an image under 10 MB.</p>
-    <div class="actions">
-      <button type="button" onclick="window.close()">Cancel</button>
-      <button type="submit" id="send">Send Report</button>
-    </div>
-  </form>
-  <div class="done">
-    <h1>Thanks for the report</h1>
-    <p>It's saved on this ${COMPUTER}.</p>
-    <div class="actions" style="justify-content:center"><button type="button" onclick="window.close()">Close</button></div>
-  </div>
-  <script>
-    const MAX = ${MAX_SCREENSHOTS};
-    const form = document.getElementById("form");
-    const shots = document.getElementById("shots");
-    const picker = document.getElementById("picker");
-    const attach = document.getElementById("attach");
-    let screenshots = [];
-
-    function render() {
-      shots.querySelectorAll(".shot").forEach((el) => el.remove());
-      screenshots.forEach((shot, i) => {
-        const tile = document.createElement("div");
-        tile.className = "shot";
-        const img = document.createElement("img");
-        img.src = shot.url;
-        img.alt = shot.name;
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.textContent = "×";
-        remove.setAttribute("aria-label", "Remove " + shot.name);
-        remove.onclick = () => { URL.revokeObjectURL(shot.url); screenshots.splice(i, 1); render(); };
-        tile.append(img, remove);
-        shots.insertBefore(tile, attach);
-      });
-      attach.hidden = screenshots.length >= MAX;
-    }
-    async function add(files) {
-      for (const file of files) {
-        if (screenshots.length >= MAX || !file.type.startsWith("image/")) continue;
-        screenshots.push({ name: file.name || "Pasted screenshot.png", type: file.type, data: new Uint8Array(await file.arrayBuffer()), url: URL.createObjectURL(file) });
-      }
-      render();
-    }
-    attach.onclick = () => picker.click();
-    picker.onchange = () => { add([...picker.files]); picker.value = ""; };
-    document.addEventListener("paste", (e) => add([...e.clipboardData.files]));
-    document.addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("dragging"); });
-    document.addEventListener("dragleave", (e) => { if (!e.relatedTarget) document.body.classList.remove("dragging"); });
-    document.addEventListener("drop", (e) => { e.preventDefault(); document.body.classList.remove("dragging"); add([...e.dataTransfer.files]); });
-
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const data = Object.fromEntries(new FormData(form));
-      data.screenshots = screenshots.map(({ name, type, data }) => ({ name, type, data }));
-      document.getElementById("send").disabled = true;
-      const ok = await window.landrop.submitReport(data).catch(() => false);
-      document.getElementById("send").disabled = false;
-      if (ok) document.body.classList.add("sent");
-      else document.getElementById("error").style.display = "block";
-    });
-  </script>
-</body></html>`;
 }
 
 /** The QR window's page. Addresses are this computer's own IPv4 addresses, so nothing here needs escaping. */

@@ -24,6 +24,7 @@ import {
   type Message,
   type MessageInfo,
   type NetworkDevice,
+  type Feedback,
   type ServerEvent,
 } from "@landrop/protocol";
 import { DatabaseSync } from "node:sqlite";
@@ -1452,6 +1453,62 @@ describe("anonymous usage counts", () => {
     expect(raw).not.toContain("secret");
     expect(raw).not.toContain("holiday");
     expect(raw).not.toContain("Galaxy");
+  });
+});
+
+describe("feedback", () => {
+  async function withHook(onFeedback?: (f: Feedback & { platform: string }) => Promise<boolean>) {
+    await app.close();
+    app = await buildApp({ dataDir, isHost: () => false, onFeedback });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+  }
+
+  it("passes a device's words to the developer with its kind of device, and nothing from its chats", async () => {
+    // Privacy promise: only what the person typed leaves, never their name or conversations.
+    const sent: (Feedback & { platform: string })[] = [];
+    await withHook(async (f) => (sent.push(f), true));
+    const phone = await join_("Alex's Galaxy");
+    await api(phone, "POST", routes.messages, { chatId: GROUP_CHAT_ID, text: "a private secret" });
+    const res = await api(phone, "POST", routes.feedback, { kind: "problem", message: "  Photos will not send  ", email: "" });
+    expect(res.status).toBe(204);
+    expect(sent).toEqual([{ kind: "problem", message: "Photos will not send", email: undefined, platform: "other" }]);
+    // Ticks alone are enough, and unknown choices are refused.
+    const ticks = { kind: "problem", area: "sending", frequency: "always", tags: ["slow", "failed"] };
+    expect((await api(phone, "POST", routes.feedback, ticks)).status).toBe(204);
+    expect(sent[1]).toMatchObject({ kind: "problem", area: "sending", frequency: "always", tags: ["slow", "failed"] });
+    expect((await api(phone, "POST", routes.feedback, { ...ticks, tags: ["made-up"] })).status).toBe(400);
+    // The device details the person was shown go along, and only short ones.
+    const device = { device: "iPhone", os: "iOS 18.2", browser: "Safari 18.2", screen: "393×852", language: "en-US" };
+    expect((await api(phone, "POST", routes.feedback, { ...ticks, device })).status).toBe(204);
+    expect(sent[2]).toMatchObject({ device });
+    expect((await api(phone, "POST", routes.feedback, { ...ticks, device: { ...device, os: "x".repeat(41) } })).status).toBe(400);
+    expect((await api(phone, "POST", routes.feedback, { kind: "problem", area: "sending" })).status).toBe(400);
+    expect(JSON.stringify(sent)).not.toContain("secret");
+    expect(JSON.stringify(sent)).not.toContain("Galaxy");
+  });
+
+  it("refuses empty, oversized or unsigned feedback, and says so when this build cannot send it", async () => {
+    await withHook(async () => true);
+    const phone = await join_("Alex");
+    expect((await api(phone, "POST", routes.feedback, { kind: "problem", message: "x" })).status).toBe(400);
+    expect((await api(phone, "POST", routes.feedback, { kind: "spam", message: "hello there" })).status).toBe(400);
+    expect((await api(phone, "POST", routes.feedback, { kind: "idea", message: "a".repeat(2001) })).status).toBe(400);
+    expect((await fetch(base + routes.feedback, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "idea", message: "hello there" }) })).status).toBe(401);
+    await withHook();
+    const again = await join_("Alex");
+    expect((await api(again, "POST", routes.feedback, { kind: "idea", message: "hello there" })).status).toBe(503);
+  });
+
+  it("reports a failed send, and stops one device sending more than a few an hour", async () => {
+    let works = false;
+    await withHook(async () => works);
+    const phone = await join_("Alex");
+    const body = { kind: "idea", message: "hello there" };
+    expect((await api(phone, "POST", routes.feedback, body)).status).toBe(502);
+    works = true;
+    for (let i = 0; i < 5; i++) expect((await api(phone, "POST", routes.feedback, body)).status).toBe(204);
+    expect((await api(phone, "POST", routes.feedback, body)).status).toBe(429);
   });
 });
 

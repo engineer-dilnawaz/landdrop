@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Send feedback: LANDrop</title>
+  <meta name="description" content="Report a problem, suggest an idea or say anything about LANDrop.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root { --paper: #fafafa; --card: #f1f5f3; --ink: #09090b; --muted: #71717a; --signal: #059669; --fill: #04855d; --hover: #e6ebe9; }
+    @media (prefers-color-scheme: dark) { :root { --paper: #09090b; --card: #151a18; --ink: #fafafa; --muted: #a1a1aa; --signal: #10b981; --fill: #059669; --hover: #1d2421; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+    main { max-width: 560px; margin: 0 auto; padding: 56px 24px 96px; }
+    a { color: var(--signal); }
+    h1 { font-size: 36px; line-height: 1.1; letter-spacing: -0.03em; margin: 0 0 12px; }
+    p { color: var(--muted); }
+    .back { display: inline-block; margin-bottom: 32px; font-size: 15px; }
+    .kinds { display: flex; flex-wrap: wrap; gap: 8px; }
+    .kinds label { cursor: pointer; }
+    .kinds input { position: absolute; opacity: 0; pointer-events: none; }
+    .kinds span { display: inline-block; padding: 7px 16px; border-radius: 999px; background: var(--card); font-size: 15px; }
+    .kinds input:checked + span { background: var(--fill); color: #fff; }
+    .kinds input:checked + span::before { content: "\2713\00a0"; }
+    .kinds input[type=radio]:checked + span::before { content: ""; }
+    .kinds input:focus-visible + span { outline: 2px solid var(--signal); outline-offset: 2px; }
+    .q { margin: 22px 0 8px; font-size: 14px; font-weight: 600; color: var(--muted); }
+    select { width: 100%; border: 0; border-radius: 16px; background: var(--card); color: var(--ink); font: inherit; font-size: 16px; padding: 13px 16px; outline: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%2371717a' stroke-width='2'%3E%3Cpath d='m1 1 5 5 5-5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 16px center; }
+    select:focus { background-color: var(--hover); }
+    textarea, input[type=email] { width: 100%; border: 0; border-radius: 16px; background: var(--card); color: var(--ink); font: inherit; font-size: 16px; padding: 14px 16px; outline: none; }
+    textarea { resize: vertical; min-height: 150px; }
+    input[type=email] { margin-top: 12px; }
+    textarea:focus, input[type=email]:focus { background: var(--hover); }
+    .hp { position: absolute; left: -9999px; }
+    button { margin-top: 16px; padding: 12px 24px; border: 0; border-radius: 12px; background: var(--fill); color: #fff; font: inherit; font-size: 16px; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: .45; cursor: default; }
+    .msg { margin-top: 14px; font-size: 15px; }
+    .msg.err { color: #dc2626; }
+    .done { text-align: center; padding: 40px 0; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="/">← LANDrop</a>
+    <div id="form-view">
+      <h1>Send feedback</h1>
+      <p>Found a problem, or wish LANDrop did something it doesn't? Pick what fits, and add a few words only if you want to. Only your choices and words are sent. <a href="privacy.html">Privacy</a></p>
+      <form id="f">
+        <div class="kinds" role="radiogroup" aria-label="What is this about">
+          <label><input type="radio" name="kind" value="problem" checked><span>Problem</span></label>
+          <label><input type="radio" name="kind" value="idea"><span>Idea</span></label>
+          <label><input type="radio" name="kind" value="other"><span>Something else</span></label>
+        </div>
+        <p class="q">Which part?</p>
+        <select id="area" aria-label="Which part of LANDrop">
+          <option value="">Choose one</option>
+          <option value="joining">Joining or the QR code</option>
+          <option value="sending">Sending files</option>
+          <option value="chat">Chat and messages</option>
+          <option value="folders">Folders</option>
+          <option value="install">Installing or updating</option>
+          <option value="other">Something else</option>
+        </select>
+        <div id="problem-only">
+          <p class="q">What happened?</p>
+          <div class="kinds" role="group" aria-label="What happened">
+            <label><input type="checkbox" name="tag" value="wont-connect"><span>Won't connect</span></label>
+            <label><input type="checkbox" name="tag" value="slow"><span>Too slow</span></label>
+            <label><input type="checkbox" name="tag" value="froze"><span>Froze or crashed</span></label>
+            <label><input type="checkbox" name="tag" value="failed"><span>File didn't arrive</span></label>
+            <label><input type="checkbox" name="tag" value="confusing"><span>Confusing</span></label>
+            <label><input type="checkbox" name="tag" value="looks-wrong"><span>Looks wrong</span></label>
+          </div>
+          <p class="q">How often?</p>
+          <div class="kinds" role="radiogroup" aria-label="How often">
+            <label><input type="radio" name="frequency" value="always"><span>Every time</span></label>
+            <label><input type="radio" name="frequency" value="sometimes"><span>Sometimes</span></label>
+            <label><input type="radio" name="frequency" value="once"><span>Just once</span></label>
+          </div>
+        </div>
+        <p class="q" id="msg-label">Anything else? (optional)</p>
+        <textarea id="message" maxlength="2000" aria-label="Your message" placeholder="What were you trying to do?"></textarea>
+        <input id="email" type="email" maxlength="120" aria-label="Email, optional" placeholder="Email (optional, only if you want a reply)">
+        <input class="hp" id="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <button id="send" type="submit">Send</button>
+        <p class="msg err" id="err" role="alert" hidden></p>
+      </form>
+    </div>
+    <div class="done" id="done" hidden>
+      <h1>Thank you</h1>
+      <p>I read every one.</p>
+      <p><a href="/">Back to LANDrop</a></p>
+    </div>
+  </main>
+  <script>
+    var f = document.getElementById("f"), err = document.getElementById("err"), send = document.getElementById("send");
+    var problemOnly = document.getElementById("problem-only"), msgLabel = document.getElementById("msg-label"), msg = document.getElementById("message");
+    function syncKind() {
+      var problem = f.kind.value === "problem";
+      problemOnly.hidden = !problem;
+      msgLabel.textContent = problem ? "Anything else? (optional)" : "Tell me a little";
+      msg.placeholder = problem ? "What were you trying to do?" : f.kind.value === "idea" ? "What would make LANDrop better for you?" : "Anything you like";
+    }
+    Array.prototype.forEach.call(f.kind, function (r) { r.addEventListener("change", syncKind); });
+    f.addEventListener("submit", function (e) {
+      e.preventDefault();
+      err.hidden = true;
+      var problem = f.kind.value === "problem";
+      var tags = problem ? Array.prototype.map.call(f.querySelectorAll("input[name=tag]:checked"), function (c) { return c.value; }) : [];
+      if (msg.value.trim().length < 3 && !tags.length) { err.textContent = problem ? "Tick what happened or write a few words." : "Write a few words about it."; err.hidden = false; return; }
+      send.disabled = true;
+      send.textContent = "Sending…";
+      fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: f.kind.value,
+          area: document.getElementById("area").value,
+          frequency: problem && f.frequency.value ? f.frequency.value : undefined,
+          tags: tags,
+          message: msg.value,
+          email: document.getElementById("email").value,
+          website: document.getElementById("website").value,
+          source: "web"
+        })
+      }).then(function (r) {
+        if (r.ok) { document.getElementById("form-view").hidden = true; document.getElementById("done").hidden = false; return; }
+        return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.message || "Something went wrong. Try again."); });
+      }).catch(function (x) {
+        err.textContent = x.message; err.hidden = false; send.disabled = false; send.textContent = "Send";
+      });
+    });
+  </script>
+</body>
+</html>

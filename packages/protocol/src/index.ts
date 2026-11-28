@@ -134,6 +134,51 @@ export const UpdateChatMetaRequestSchema = z
   .refine((r) => r.pinnedMessageId !== undefined || r.name !== undefined, "Nothing to change");
 export type UpdateChatMetaRequest = z.input<typeof UpdateChatMetaRequestSchema>;
 
+// ---------- Feedback ----------
+
+export const FEEDBACK_KINDS = ["problem", "idea", "other"] as const;
+export type FeedbackKind = (typeof FEEDBACK_KINDS)[number];
+/** Which part of LANDrop it is about, picked from a list so people type less. */
+export const FEEDBACK_AREAS = ["joining", "sending", "chat", "folders", "install", "other"] as const;
+export type FeedbackArea = (typeof FEEDBACK_AREAS)[number];
+export const FEEDBACK_FREQUENCIES = ["always", "sometimes", "once"] as const;
+export type FeedbackFrequency = (typeof FEEDBACK_FREQUENCIES)[number];
+/** What went wrong, ticked from a list (problems only). */
+export const FEEDBACK_TAGS = ["wont-connect", "slow", "froze", "failed", "confusing", "looks-wrong"] as const;
+export type FeedbackTag = (typeof FEEDBACK_TAGS)[number];
+export const MAX_FEEDBACK_LENGTH = 2000;
+
+/**
+ * The device details shown to the person before they send, and sent with the feedback: the kind of device, its system, the
+ * browser, screen size and language. Never a name, an address or anything about the network.
+ */
+export const FeedbackDeviceSchema = z.object({
+  device: z.string().trim().max(40).optional(),
+  os: z.string().trim().max(40).optional(),
+  browser: z.string().trim().max(40).optional(),
+  screen: z.string().trim().max(16).optional(),
+  language: z.string().trim().max(16).optional(),
+});
+export type FeedbackDevice = z.infer<typeof FeedbackDeviceSchema>;
+
+/**
+ * What someone fills in at Settings → Send feedback: mostly choices, and a few words only if they want. The host passes it
+ * on to the developer; nothing else leaves with it. Either some ticks or a few words are needed, so it is never empty.
+ */
+export const FeedbackRequestSchema = z
+  .object({
+    kind: z.enum(FEEDBACK_KINDS),
+    area: z.enum(FEEDBACK_AREAS).optional(),
+    frequency: z.enum(FEEDBACK_FREQUENCIES).optional(),
+    tags: z.array(z.enum(FEEDBACK_TAGS)).max(FEEDBACK_TAGS.length).optional(),
+    message: z.string().trim().max(MAX_FEEDBACK_LENGTH).optional(),
+    device: FeedbackDeviceSchema.optional(),
+    email: z.string().trim().email("That email does not look right").max(120).optional().or(z.literal("").transform(() => undefined)),
+  })
+  .refine((f) => (f.message?.length ?? 0) >= 3 || (f.tags?.length ?? 0) > 0, "Tick what happened or write a few words");
+export type FeedbackRequest = z.input<typeof FeedbackRequestSchema>;
+export type Feedback = z.output<typeof FeedbackRequestSchema>;
+
 // ---------- Read receipts ----------
 
 /** A device has read a chat up to `upTo`: every message created at or before it. */
@@ -351,6 +396,8 @@ export const routes = {
   join: `${API_PREFIX}/join`,
   /** GET (host machine only) → { devices, messages, files }: totals for the last 24 hours, for the anonymous usage ping. Never content. */
   usage: `${API_PREFIX}/usage`,
+  /** POST FeedbackRequest → 204: the host sends it to the developer. 503 when this build cannot. */
+  feedback: `${API_PREFIX}/feedback`,
   /** GET → { devices: NetworkDevice[] }: what else is on the host's network, minus devices using LANDrop. Takes a few seconds. */
   network: `${API_PREFIX}/network`,
   ws: `${API_PREFIX}/ws`,

@@ -29,3 +29,18 @@ export async function sendUsagePing(url: string, ping: UsagePing): Promise<void>
     // Offline, or the service is down. LANDrop works the same, and tomorrow's ping tries again.
   }
 }
+
+/** Passes feedback someone wrote on to the developer's website. Returns whether it was accepted. */
+export async function sendFeedback(url: string, feedback: Record<string, unknown>): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(feedback),
+      signal: AbortSignal.timeout(15_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}

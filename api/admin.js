@@ -50,7 +50,16 @@ module.exports = async function handler(request, response) {
         files: Number(sums[i * 4 + 3] || 0),
       }))
       .reverse();
-    return response.status(200).json({ configured: true, active7, active30, series, byOs, byVersion, byCountry, guestsByPlatform, downloads });
+    const feedback = (await store.run([["LRANGE", "fb:items", 0, 99]]))[0]
+      .map((raw) => {
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return undefined;
+        }
+      })
+      .filter(Boolean);
+    return response.status(200).json({ configured: true, active7, active30, series, byOs, byVersion, byCountry, guestsByPlatform, downloads, feedback });
   } catch (err) {
     return response.status(500).json({ message: String(err.message || err) });
   }

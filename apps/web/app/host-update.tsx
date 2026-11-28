@@ -27,7 +27,7 @@ declare global {
         onState(listener: (state: UpdateState) => void): () => void;
       };
       app?: {
-        info(): Promise<{ version: string; previous?: string } | undefined>;
+        info(): Promise<{ version: string; previous?: string; system?: string } | undefined>;
         seen(): Promise<void>;
       };
     };

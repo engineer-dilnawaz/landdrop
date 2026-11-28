@@ -17,6 +17,7 @@ import {
   type ClientMessage,
   type FolderListing,
   type Device,
+  type ChatMeta,
   type Group,
   type KnownDevice,
   type Message,
@@ -45,9 +46,10 @@ import { MediaViewer, type MediaItem } from "./media-viewer";
 import { MessageInfoSheet } from "./message-info";
 import { receiptOf, recipientsOf, type ReceiptContext, type Reads } from "./receipts";
 import { BottomTabs, Rail, type Panel } from "./nav";
-import { setLoungeName, useLoungeName } from "./lounge";
+import { UpdateBar, WhatsNew } from "./host-update";
+import { DEFAULT_LOUNGE_NAME } from "./lounge";
 import { RenameChatSheet } from "./rename-chat";
-import { MAX_PINNED_CHATS, pinChat, pinMessage, unpinChat, unpinMessage, usePins } from "./pins";
+import { MAX_PINNED_CHATS, pinChat, unpinChat, usePins } from "./pins";
 import { ConfirmRemoveSheet, ForwardSheet } from "./selection";
 import { Settings, SettingsDetail, type SettingsPage } from "./settings";
 import { Sidebar } from "./sidebar";
@@ -106,6 +108,8 @@ interface State {
   readAt?: Record<string, number>;
   /** How far every member has read each chat, from the host: drives the ticks on your messages. */
   reads: Reads;
+  /** What the members of each chat share: its pinned message, and the LANDrop group's name. */
+  meta: Record<string, ChatMeta>;
   notice?: string;
 }
 
@@ -117,7 +121,7 @@ type Action =
   | { type: "loadRead"; stored: Record<string, number> | null }
   | { type: "read"; chatId: string };
 
-const initialState: State = { connection: "connecting", isHost: false, online: [], devices: {}, messages: [], groups: {}, progress: {}, reads: {} };
+const initialState: State = { connection: "connecting", isHost: false, online: [], devices: {}, messages: [], groups: {}, progress: {}, reads: {}, meta: {} };
 
 function upsert(messages: Message[], message: Message): Message[] {
   const index = messages.findIndex((m) => m.id === message.id);
@@ -190,7 +194,10 @@ function reducer(state: State, action: Action): State {
         messages: e.messages,
         groups: Object.fromEntries(e.groups.map((g) => [g.id, g])),
         reads: e.reads.reduce<Reads>((all, r) => ({ ...all, [r.chatId]: { ...all[r.chatId], [r.deviceId]: r.upTo } }), {}),
+        meta: Object.fromEntries(e.chatMeta.map((m) => [m.chatId, m])),
       };
+    case "chat:meta":
+      return { ...state, meta: { ...state.meta, [e.meta.chatId]: e.meta } };
     case "device:updated":
       // The host sends the whole device, so a removed photo really is gone.
       return { ...state, devices: { ...state.devices, [e.device.id]: e.device } };
@@ -302,10 +309,10 @@ export default function LanDrop() {
   const [heldChat, setHeldChat] = useState<ChatSummary>();
   /** The chat whose actions (pin, clear or delete) are open; "Clear" or "Delete" then asks via heldChat. */
   const [chatMenu, setChatMenu] = useState<ChatSummary>();
-  /** What's pinned on this device: up to two chats at the top of the list, and one message per chat. */
+  /** The chats pinned to the top of the list on this device: a personal choice, up to two. */
   const pins = usePins();
-  /** What the chat everyone shares is called here; the user can rename it. */
-  const loungeName = useLoungeName();
+  /** What the chat everyone shares is called; anyone can rename it and every device sees it. */
+  const loungeName = state.meta[GROUP_CHAT_ID]?.name ?? DEFAULT_LOUNGE_NAME;
   const [renamingLounge, setRenamingLounge] = useState(false);
   /** Picking devices for a new group, or to add to the open group. */
   const [groupPicker, setGroupPicker] = useState<"create" | "add">();
@@ -844,9 +851,29 @@ export default function LanDrop() {
     : [];
   function togglePinChat(id: string) {
     if (pins.chats.includes(id)) return unpinChat(id);
+    // Pins for chats that no longer show (a removed device, a left group) must not use up the limit.
+    for (const gone of pins.chats) if (!chats.some((c) => c.id === gone)) unpinChat(gone);
     if (!pinChat(id)) dispatch({ type: "notice", notice: `You can pin up to ${MAX_PINNED_CHATS} chats. Unpin one first.` });
   }
-  const pinnedMessage = activeChat ? chatMessages.find((m) => m.id === pins.messages[activeChat.id]) : undefined;
+  const pinnedId = activeChat ? state.meta[activeChat.id]?.pinnedMessageId : undefined;
+  const pinnedMessage = pinnedId ? chatMessages.find((m) => m.id === pinnedId) : undefined;
+  /** Pins (or, with null, unpins) a chat's message for everyone in the chat. */
+  async function pinMessage(chatId: string, messageId: string | null) {
+    try {
+      const meta = await api<ChatMeta>(routes.chatMeta(chatId), "PATCH", { pinnedMessageId: messageId });
+      dispatch({ type: "event", event: { type: "chat:meta", meta } });
+    } catch (err) {
+      dispatch({ type: "notice", notice: `Couldn't ${messageId ? "pin" : "unpin"} the message: ${(err as Error).message}` });
+    }
+  }
+  async function nameLounge(name: string) {
+    try {
+      const meta = await api<ChatMeta>(routes.chatMeta(GROUP_CHAT_ID), "PATCH", { name: name.trim() || null });
+      dispatch({ type: "event", event: { type: "chat:meta", meta } });
+    } catch (err) {
+      dispatch({ type: "notice", notice: `Couldn't rename the chat: ${(err as Error).message}` });
+    }
+  }
   const openGroup = activeChat?.kind === "group" ? state.groups[activeChat.id] : undefined;
   /** Phones and computers that can be put in a group: all of them for a new one, those not in it yet for the open one. */
   const groupContacts: Contact[] = people
@@ -961,8 +988,11 @@ export default function LanDrop() {
       {/* App chrome, not a document: no text selection or iOS callouts anywhere except text fields. */}
       <div
         {...dropHandlers}
-        className="relative flex h-dvh bg-app select-none [-webkit-touch-callout:none] [-webkit-user-select:none]"
+        className="relative flex h-dvh flex-col bg-app select-none [-webkit-touch-callout:none] [-webkit-user-select:none]"
       >
+        <UpdateBar />
+        <WhatsNew />
+        <div className="relative flex min-h-0 flex-1">
         {/* Phone: one screen at a time. Wider screens: icon rail, list and open chat side by side, like WhatsApp Web. */}
         <Rail
           panel={panel}
@@ -1070,7 +1100,7 @@ export default function LanDrop() {
                   id: pinnedMessage.id,
                   sender: pinnedMessage.senderId === selfId ? "You" : nameOf(pinnedMessage.senderId, pinnedMessage.senderName),
                   preview: messagePreview(pinnedMessage),
-                  onUnpin: () => unpinMessage(activeChat.id),
+                  onUnpin: () => void pinMessage(activeChat.id, null),
                 }
               }
               selection={
@@ -1173,7 +1203,7 @@ export default function LanDrop() {
           <RenameChatSheet
             current={loungeName}
             onSave={(name) => {
-              setLoungeName(name);
+              void nameLounge(name);
               setRenamingLounge(false);
             }}
             onClose={() => setRenamingLounge(false)}
@@ -1251,11 +1281,10 @@ export default function LanDrop() {
               setReplyTo(selected);
               setSelected(undefined);
             }}
-            pinned={!!activeChat && pins.messages[activeChat.id] === selected.id}
+            pinned={!!activeChat && pinnedId === selected.id}
             onPin={() => {
               if (activeChat) {
-                if (pins.messages[activeChat.id] === selected.id) unpinMessage(activeChat.id);
-                else pinMessage(activeChat.id, selected.id);
+                void pinMessage(activeChat.id, pinnedId === selected.id ? null : selected.id);
               }
               setSelected(undefined);
             }}
@@ -1304,6 +1333,7 @@ export default function LanDrop() {
             onClose={() => setInfoFor(undefined)}
           />
         )}
+        </div>
       </div>
     </AvatarPhotos.Provider>
   );

@@ -4,12 +4,18 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "LANDrop",
   description: "Share text and files between devices on your local network.",
+  // iPhones ignore the manifest's display mode; these make the home-screen icon open full screen.
+  appleWebApp: { capable: true, title: "LANDrop", statusBarStyle: "default" },
 };
 
 // LANDrop has its own light and dark themes. Declaring both stops browsers with a forced dark
 // mode (Samsung Internet, Chrome's auto-dark) from darkening the dark theme a second time.
 export const viewport: Viewport = {
   colorScheme: "light dark",
+  // Fill the phone's screen, including behind the notch.
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 // The theme (system, light or dark) is a class on <html> and the chat looks (colour, text size,

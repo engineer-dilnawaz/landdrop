@@ -436,7 +436,7 @@ export function ChatView({
           )}
           <div className="flex items-end gap-1.5">
                 <AttachMenu onFiles={composer.chooseFiles} onFolder={composer.pickFolder} onDropFolder={composer.dropFolder} />
-                <div className="flex min-h-[42px] flex-1 items-end rounded-lg bg-panel px-3 md:bg-field dark:bg-field">
+                <div className="flex min-h-[42px] min-w-0 flex-1 items-end rounded-lg bg-panel px-3 md:bg-field dark:bg-field">
                   <textarea
                     ref={fieldRef}
                     value={text}
@@ -451,7 +451,7 @@ export function ChatView({
                     rows={1}
                     placeholder="Type a message"
                     aria-label="Message"
-                    className="max-h-36 min-h-[42px] flex-1 resize-none bg-transparent py-[11px] text-[15px] leading-5 outline-none placeholder:text-muted select-text [-webkit-user-select:text] [field-sizing:content]"
+                    className="max-h-36 min-h-[42px] min-w-0 max-w-full flex-1 resize-none bg-transparent py-[11px] text-[15px] leading-5 outline-none placeholder:text-muted select-text [-webkit-user-select:text] [field-sizing:content]"
                   />
                 </div>
                 <button

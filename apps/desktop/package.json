@@ -1,6 +1,6 @@
 {
   "name": "@landrop/desktop",
-  "version": "0.1.2",
+  "version": "0.2.4",
   "private": true,
   "description": "LANDrop for Mac and Windows: runs the LANDrop host from the menu bar or system tray.",
   "author": "LANDrop",

@@ -487,7 +487,7 @@ export function JsonViewer({ json, onClose }: { json: Json; onClose: () => void 
       {comparing && !showingDiff ? (
         <div className="grid min-h-0 flex-1 grid-cols-2">
           <div className="relative min-h-0">
-            <div className="h-full overflow-auto py-2">{tree("left")}</div>
+            <div className="h-full select-text overflow-auto py-2">{tree("left")}</div>
             <CopyCorner json={json} label="Copy this JSON" />
           </div>
           <div className="flex min-h-0 flex-col gap-2 p-3">
@@ -508,7 +508,7 @@ export function JsonViewer({ json, onClose }: { json: Json; onClose: () => void 
       ) : (
         // The copy buttons sit outside the scrolling area, so they stay in the corners.
         <div className="relative min-h-0 flex-1">
-          <div className="h-full overflow-auto py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">{tree(showingDiff ? "both" : "left")}</div>
+          <div className="h-full select-text overflow-auto py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">{tree(showingDiff ? "both" : "left")}</div>
           {showingDiff ? (
             <>
               <CopyCorner json={json} label="Copy the original JSON" side="left" />

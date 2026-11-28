@@ -4,16 +4,13 @@ import { useSyncExternalStore } from "react";
 export const MAX_PINNED_CHATS = 2;
 
 const CHATS_KEY = "landrop.pinned.chats";
-const MESSAGES_KEY = "landrop.pinned.messages";
 
 interface Pins {
   /** Chat ids, pinned to the top of the list. */
   chats: string[];
-  /** Each chat's one pinned message, by chat id. */
-  messages: Record<string, string>;
 }
 
-const NONE: Pins = { chats: [], messages: {} };
+const NONE: Pins = { chats: [] };
 let pins: Pins | undefined;
 const listeners = new Set<() => void>();
 
@@ -31,7 +28,6 @@ function parse<T>(key: string, fallback: T, valid: (value: unknown) => boolean):
 function read(): Pins {
   pins ??= {
     chats: parse<string[]>(CHATS_KEY, [], (v) => Array.isArray(v) && v.every((id) => typeof id === "string")).slice(0, MAX_PINNED_CHATS),
-    messages: parse<Record<string, string>>(MESSAGES_KEY, {}, (v) => !!v && typeof v === "object" && !Array.isArray(v)),
   };
   return pins;
 }
@@ -40,7 +36,6 @@ function write(next: Pins) {
   pins = next;
   try {
     localStorage.setItem(CHATS_KEY, JSON.stringify(next.chats));
-    localStorage.setItem(MESSAGES_KEY, JSON.stringify(next.messages));
   } catch {
     // Private browsing: the pins still apply until reload.
   }
@@ -66,15 +61,4 @@ export function pinChat(id: string): boolean {
 export function unpinChat(id: string) {
   const current = read();
   write({ ...current, chats: current.chats.filter((c) => c !== id) });
-}
-
-/** A chat keeps one pinned message: pinning another replaces it. */
-export function pinMessage(chatId: string, messageId: string) {
-  const current = read();
-  write({ ...current, messages: { ...current.messages, [chatId]: messageId } });
-}
-
-export function unpinMessage(chatId: string) {
-  const current = read();
-  write({ ...current, messages: Object.fromEntries(Object.entries(current.messages).filter(([id]) => id !== chatId)) });
 }

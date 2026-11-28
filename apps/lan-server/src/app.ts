@@ -22,6 +22,7 @@ import {
   MarkReadRequestSchema,
   PROTOCOL_VERSION,
   SubmitChecksumRequestSchema,
+  UpdateChatMetaRequestSchema,
   UpdateGroupRequestSchema,
   previewKind,
   routes,
@@ -291,6 +292,7 @@ export async function buildApp({
           messages: store.history(session.device.id, HISTORY_LIMIT),
           groups: store.groupsOf(session.device.id),
           reads: store.readsFor(session.device.id),
+          chatMeta: store.metaFor(session.device.id),
           isHost: isHost(request.socket.remoteAddress),
         });
         if (isHost(request.socket.remoteAddress)) hostDeviceIds.add(session.device.id);
@@ -393,6 +395,11 @@ export async function buildApp({
   app.patch<{ Params: MessageParams }>(routes.group(":id"), async (request) => {
     const { device } = authenticate(request);
     return store.updateGroup(request.params.id, device.id, parse(UpdateGroupRequestSchema, request.body));
+  });
+
+  app.patch<{ Params: { chatId: string } }>(routes.chatMeta(":chatId"), async (request) => {
+    const { device } = authenticate(request);
+    return store.updateMeta(request.params.chatId, device.id, parse(UpdateChatMetaRequestSchema, request.body));
   });
 
   app.post<{ Params: MessageParams }>(routes.leaveGroup(":id"), async (request, reply) => {

@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
+  GROUP_CHAT_ID,
   MAX_AVATAR_BYTES,
   MAX_GROUP_MEMBERS,
   chatMembers,
@@ -16,11 +17,13 @@ import {
   type ChatRead,
   type Device,
   type FolderFile,
+  type ChatMeta,
   type Group,
   type KnownDevice,
   type Message,
   type MessageInfo,
   type ServerEvent,
+  type UpdateChatMetaRequest,
 } from "@landrop/protocol";
 
 export class HttpError extends Error {
@@ -114,6 +117,12 @@ CREATE TABLE IF NOT EXISTS folder_lists (
 CREATE TRIGGER IF NOT EXISTS folder_lists_cleanup AFTER DELETE ON messages BEGIN
   DELETE FROM folder_lists WHERE message_id = old.id;
 END;
+-- What a chat's members share: its one pinned message and, for the LANDrop group, its name.
+CREATE TABLE IF NOT EXISTS chat_meta (
+  chat_id TEXT PRIMARY KEY,
+  pinned_message_id TEXT,
+  name TEXT
+);
 CREATE TABLE IF NOT EXISTS chat_clears (
   device_id TEXT NOT NULL,
   chat_id TEXT NOT NULL,
@@ -135,6 +144,7 @@ const ADDED_COLUMNS = [
 ];
 
 const REPLY_PREVIEW_LENGTH = 120;
+const IDLE_DEVICE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Chat history and attachments for the group and private chats, persisted on the host.
@@ -171,7 +181,33 @@ export class ChatStore {
     await store.failInterruptedUploads();
     // Live files exist only in their senders' tabs, which a restart has disconnected.
     db.exec("DELETE FROM messages WHERE att_status = 'live'");
+    await store.pruneIdleDevices();
     return store;
+  }
+
+  /**
+   * Forgets devices that have been away a week and have no private chat or group of their own. Their
+   * messages in the shared chat stay, under the name they were sent with. Every new browser or cleared
+   * browser storage makes a new device, so without this the list only ever grows. A device that comes
+   * back simply joins again.
+   */
+  async pruneIdleDevices(): Promise<number> {
+    const idle = this.db
+      .prepare(
+        `SELECT id FROM devices
+         WHERE last_seen < ?
+           AND NOT EXISTS (SELECT 1 FROM messages WHERE chat_id LIKE 'dm:%' AND chat_id LIKE '%' || devices.id || '%')
+           AND NOT EXISTS (SELECT 1 FROM group_members WHERE device_id = devices.id)
+           AND NOT EXISTS (SELECT 1 FROM groups WHERE created_by = devices.id)`,
+      )
+      .all(Date.now() - IDLE_DEVICE_MS) as { id: string }[];
+    for (const { id } of idle) {
+      this.db.prepare("DELETE FROM devices WHERE id = ?").run(id);
+      this.db.prepare("DELETE FROM chat_reads WHERE device_id = ?").run(id);
+      this.db.prepare("DELETE FROM chat_clears WHERE device_id = ?").run(id);
+      await rm(join(this.avatarsDir, id), { force: true });
+    }
+    return idle.length;
   }
 
   close(): void {
@@ -526,6 +562,47 @@ export class ChatStore {
     if (!isGroupId(chatId)) return chatMembers(chatId);
     const rows = this.db.prepare("SELECT device_id FROM group_members WHERE group_id = ?").all(chatId) as { device_id: string }[];
     return rows.length ? rows.map((r) => r.device_id) : undefined;
+  }
+
+  // ---------- Pinned message and name ----------
+
+  private metaOf(chatId: string): ChatMeta {
+    const row = this.db.prepare("SELECT pinned_message_id AS pinned, name FROM chat_meta WHERE chat_id = ?").get(chatId) as
+      | { pinned: string | null; name: string | null }
+      | undefined;
+    return { chatId, ...(row?.pinned && { pinnedMessageId: row.pinned }), ...(row?.name && { name: row.name }) };
+  }
+
+  /** The pinned message and name of every chat a device is in that has either. */
+  metaFor(deviceId: string): ChatMeta[] {
+    const rows = this.db.prepare("SELECT chat_id FROM chat_meta").all() as { chat_id: string }[];
+    return rows
+      .map((r) => r.chat_id)
+      .filter((id) => {
+        const members = this.members(id);
+        return members === "everyone" || !!members?.includes(deviceId);
+      })
+      .map((id) => this.metaOf(id));
+  }
+
+  /** Any member may pin or unpin a message, or name the LANDrop group; everyone in the chat sees it. */
+  updateMeta(chatId: string, deviceId: string, change: UpdateChatMetaRequest): ChatMeta {
+    const members = this.members(chatId);
+    if (members !== "everyone" && !members?.includes(deviceId)) throw new HttpError(404, "Chat not found");
+    if (change.name !== undefined && chatId !== GROUP_CHAT_ID) throw new HttpError(400, "Only the LANDrop group is named here");
+    if (change.pinnedMessageId && this.get(change.pinnedMessageId)?.chatId !== chatId) throw new HttpError(404, "Message not found");
+    const current = this.metaOf(chatId);
+    const pinned = change.pinnedMessageId === undefined ? current.pinnedMessageId : change.pinnedMessageId;
+    const name = change.name === undefined ? current.name : change.name || undefined;
+    this.db
+      .prepare(
+        `INSERT INTO chat_meta (chat_id, pinned_message_id, name) VALUES (?, ?, ?)
+         ON CONFLICT (chat_id) DO UPDATE SET pinned_message_id = excluded.pinned_message_id, name = excluded.name`,
+      )
+      .run(chatId, pinned ?? null, name ?? null);
+    const meta = this.metaOf(chatId);
+    this.broadcast({ type: "chat:meta", meta }, chatId);
+    return meta;
   }
 
   /** The groups a device is in. */

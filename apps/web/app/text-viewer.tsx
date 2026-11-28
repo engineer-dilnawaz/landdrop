@@ -219,7 +219,7 @@ export function TextViewer({ name, path, title, size, src, download, fileUrl, on
           Showing the first {formatBytes(MAX_TEXT_BYTES)} of {formatBytes(size)}. Save it to see the whole file.
         </p>
       )}
-      <div className="min-h-0 flex-1 overflow-auto pb-[env(safe-area-inset-bottom)]">
+      <div className="min-h-0 flex-1 select-text overflow-auto pb-[env(safe-area-inset-bottom)]">
         {!loaded ? (
           <p className="px-6 py-12 text-center text-[14px] text-muted">Opening “{name}”…</p>
         ) : "error" in loaded ? (

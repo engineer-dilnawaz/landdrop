@@ -26,6 +26,8 @@ import {
   type NetworkDevice,
   type ServerEvent,
 } from "@landrop/protocol";
+import { DatabaseSync } from "node:sqlite";
+import { ChatStore } from "../src/chat.js";
 import { buildApp, contentDisposition, parseRange } from "../src/app.js";
 import { startHost } from "../src/host.js";
 import type { Network } from "../src/network.js";
@@ -1350,5 +1352,81 @@ describe("forwarding messages", () => {
     const secret = (await (await api(alice, "POST", routes.messages, { chatId: privateChatId(alice.welcome.self.id, bob.welcome.self.id), text: "private" })).json()) as Message;
 
     expect((await forward(eve, secret.id, GROUP_CHAT_ID)).status).toBe(404);
+  });
+});
+
+describe("idle devices", () => {
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+
+  it("forgets devices away a week with no private chat, keeping their shared-chat messages, so the list can't grow forever", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "landrop-idle-"));
+    const ids = { idle: "a".repeat(32), talker: "b".repeat(32), listener: "c".repeat(32), recent: "d".repeat(32) };
+    try {
+      const first = await ChatStore.open(dir, () => {});
+      for (const [name, id] of Object.entries(ids)) first.authenticateDevice(id, "secret", name);
+      first.close();
+
+      const db = new DatabaseSync(join(dir, "landrop.db"));
+      const old = Date.now() - WEEK - 60_000;
+      for (const id of [ids.idle, ids.talker, ids.listener]) db.prepare("UPDATE devices SET last_seen = ? WHERE id = ?").run(old, id);
+      const message = db.prepare("INSERT INTO messages (id, sender_id, sender_name, created_at, text, chat_id) VALUES (?, ?, ?, ?, 'hi', ?)");
+      message.run("m1", ids.talker, "talker", old, "group");
+      // A device that only ever received a private message still belongs to that chat.
+      message.run("m2", ids.recent, "recent", old, privateChatId(ids.recent, ids.listener));
+      db.close();
+
+      const second = await ChatStore.open(dir, () => {});
+      // The talker only posted to the shared chat, so it goes; the listener is still in a private chat.
+      expect(second.directory().map((d) => d.id).sort()).toEqual([ids.listener, ids.recent].sort());
+      expect(second.history(ids.recent, 10).map((m) => m.id)).toContain("m1");
+      second.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("shared pins and name", () => {
+  async function trio() {
+    const a = newIdentity();
+    const b = newIdentity();
+    const alice = await join_("Alice", a);
+    const bob = await join_("Bob", b);
+    const eve = await join_("Eve");
+    return { alice, bob, eve, b, chatId: privateChatId(a.deviceId, b.deviceId) };
+  }
+  const patch = (client: Client, chatId: string, body: unknown) => api(client, "PATCH", routes.chatMeta(chatId), body);
+
+  it("shows a pinned message to the other person in a private chat, and to nobody else", async () => {
+    const { alice, bob, eve, b, chatId } = await trio();
+    const sent = (await (await api(alice, "POST", routes.messages, { chatId, text: "remember this" })).json()) as { id: string };
+    expect((await patch(alice, chatId, { pinnedMessageId: sent.id })).status).toBe(200);
+    expect((await bob.waitFor("chat:meta")).meta).toEqual({ chatId, pinnedMessageId: sent.id });
+    // Eve isn't in the chat: she can't pin there and never hears of it.
+    expect((await patch(eve, chatId, { pinnedMessageId: sent.id })).status).toBe(404);
+    // Bob opening LANDrop in another tab is told what is already pinned.
+    const late = await join_("Bob", b);
+    expect(late.welcome.chatMeta).toContainEqual({ chatId, pinnedMessageId: sent.id });
+  });
+
+  it("unpins for both, and only accepts a message from that chat", async () => {
+    const { alice, bob, chatId } = await trio();
+    const sent = (await (await api(alice, "POST", routes.messages, { chatId, text: "pin me" })).json()) as { id: string };
+    const elsewhere = (await (await api(alice, "POST", routes.messages, { chatId: GROUP_CHAT_ID, text: "other chat" })).json()) as { id: string };
+    expect((await patch(alice, chatId, { pinnedMessageId: elsewhere.id })).status).toBe(404);
+    await patch(alice, chatId, { pinnedMessageId: sent.id });
+    await bob.waitFor("chat:meta");
+    await patch(bob, chatId, { pinnedMessageId: null });
+    expect((await alice.waitFor("chat:meta", (e) => !e.meta.pinnedMessageId)).meta).toEqual({ chatId });
+  });
+
+  it("renames the LANDrop group for every device, and refuses a name for private chats", async () => {
+    const { alice, bob, eve, chatId } = await trio();
+    expect((await patch(alice, GROUP_CHAT_ID, { name: "Movie night" })).status).toBe(200);
+    expect((await eve.waitFor("chat:meta")).meta).toEqual({ chatId: GROUP_CHAT_ID, name: "Movie night" });
+    expect((await bob.waitFor("chat:meta")).meta.name).toBe("Movie night");
+    expect((await patch(alice, chatId, { name: "Nope" })).status).toBe(400);
+    await patch(bob, GROUP_CHAT_ID, { name: null });
+    expect((await alice.waitFor("chat:meta", (e) => !e.meta.name)).meta).toEqual({ chatId: GROUP_CHAT_ID });
   });
 });

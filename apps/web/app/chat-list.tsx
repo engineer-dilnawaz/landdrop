@@ -1,5 +1,6 @@
 "use client";
 
+import { InstallBanner, useInstallApp } from "./install-app";
 import { Fragment, useRef, useState, type ReactNode } from "react";
 import { LONG_PRESS_MS } from "./bubble";
 import { EmptyState } from "./empty-state";
@@ -70,6 +71,7 @@ export function ChatList({
   onSettings: () => void;
 }) {
   const pressable = usePressAndHold(onOpen, onHold);
+  const app = useInstallApp();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("all");
   const q = query.trim().toLowerCase();
@@ -125,6 +127,9 @@ export function ChatList({
           </div>
         </div>
       )}
+
+      {app.banner && <InstallBanner install={app.install} onDismiss={app.dismiss} />}
+      {app.sheet}
 
       <label className="mx-3 flex h-10 shrink-0 items-center gap-2.5 rounded-xl bg-field px-3 text-muted transition-colors focus-within:bg-hover">
         <SearchIcon size={18} />

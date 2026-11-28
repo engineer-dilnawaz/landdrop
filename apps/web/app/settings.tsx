@@ -2,21 +2,16 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { MAX_DEVICE_NAME_LENGTH } from "@landrop/protocol";
+import { useInstallApp } from "./install-app";
 import { CropSheet } from "./crop-sheet";
 import { AVATARS, AvatarArt, avatarPicture,  type AvatarId } from "./avatars";
-import { Avatar, BackIcon, BellIcon, CameraIcon, ChatsIcon, DoubleTickIcon, FILLED_BUTTON, ICON_BUTTON, ImageIcon, PeopleIcon, Sheet, SunIcon, TickIcon, UserIcon } from "./ui";
+import { Avatar, BackIcon, BellIcon, CameraIcon, ChatsIcon, DoubleTickIcon, FILLED_BUTTON, ICON_BUTTON, ImageIcon, InstallIcon, PeopleIcon, Sheet, SunIcon, TickIcon, UserIcon } from "./ui";
 
 export type Theme = "system" | "light" | "dark";
 
 interface NotificationSettings {
   notifications: boolean;
   previews: boolean;
-}
-declare global {
-  interface Window {
-    /** Present only in the LANDrop app on the host computer, not in a browser. */
-    landrop?: { notifications?: { get(): Promise<NotificationSettings>; set(change: Partial<NotificationSettings>): Promise<NotificationSettings> } };
-  }
 }
 
 // Both choices are classes on <html>, applied before first paint by the script in layout.tsx,
@@ -131,6 +126,7 @@ export function Settings({
       </span>
     </button>
   );
+  const app = useInstallApp();
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-16 shrink-0 items-center px-5 pt-[env(safe-area-inset-top)] box-content md:box-border md:pt-0">
@@ -149,6 +145,18 @@ export function Settings({
         </button>
         <div className="pt-1">
           {PAGES.filter((p) => p.id !== "profile" && (p.id !== "notifications" || inHostApp())).map((p) => row(p.id, p.label, p.hint, p.icon))}
+          {app.kind !== "none" && (
+            <button onClick={app.install} className="flex w-full items-center gap-4 px-5 py-3 text-left hover:bg-hover">
+              <span className="flex size-10 shrink-0 items-center justify-center text-muted">
+                <InstallIcon />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[16px]">Install app</span>
+                <span className="block truncate text-[13px] text-muted">Add LANDrop to your home screen</span>
+              </span>
+            </button>
+          )}
+          {app.sheet}
         </div>
       </div>
     </div>

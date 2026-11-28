@@ -9,6 +9,7 @@ import { BrowserWindow, Menu, Notification, Tray, app, nativeImage, clipboard, d
 import QRCode from "qrcode";
 import { describeMessage, isNewer, releaseFrom, type Release } from "./notices";
 import { MAX_SCREENSHOTS, parseReport, saveReport } from "./reports";
+import { canReplaceInPlace, checksumOf, downloadInstaller, installOnMac, installOnWindows, runningBundle } from "./updater";
 
 /**
  * LANDrop for Mac and Windows: runs the LANDrop host from the menu bar or system tray, so phones on this
@@ -28,6 +29,8 @@ const COMPUTER = MAC ? "Mac" : "computer";
 const TRAY = MAC ? "menu bar" : "system tray";
 const REPO = "engineer-dilnawaz/landdrop";
 const WEBSITE = "https://landdrop.vercel.app";
+// Overridable so the update flow can be tried against a local stand-in for GitHub.
+const RELEASES_URL = process.env.LANDROP_RELEASES_URL ?? `https://api.github.com/repos/${REPO}/releases/latest`;
 
 /** How often a running LANDrop looks for a newer release. */
 const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
@@ -40,11 +43,24 @@ interface Settings {
   previews: boolean;
   /** The newest release the user was already told about, so each one is announced once. */
   announcedVersion?: string;
+  /** The version that last ran, so the first launch after an update can show what's new. */
+  lastRunVersion?: string;
 }
+
+/** Where an update is: shown in the chat window's header and the menus. */
+type UpdateState =
+  | { phase: "idle" }
+  | { phase: "downloading"; version: string; received: number; total: number }
+  | { phase: "ready"; version: string }
+  | { phase: "failed"; version: string; message: string };
 
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
 let settings: Settings = { askedAboutLogin: false, keepAwake: false, notifications: true, previews: true };
 let availableUpdate: Release | undefined;
+let updateState: UpdateState = { phase: "idle" };
+/** The installer that finished downloading, ready to run when LANDrop restarts. */
+let downloadedInstaller: string | undefined;
+let downloadAbort: AbortController | undefined;
 let tray: Tray | undefined;
 let qrWindow: BrowserWindow | undefined;
 let chatWindow: BrowserWindow | undefined;
@@ -53,6 +69,8 @@ let awakeBlocker: number | undefined;
 
 // Settings and the chat window's storage live in "Application Support/LANDrop", not under the package's name.
 // A development build gets its own, so it doesn't share settings or the single-instance lock with the installed app.
+// The menu and dialogs use this name; without it Electron falls back to the package name, "@landrop/desktop".
+app.setName("LANDrop");
 app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? "LANDrop" : "LANDrop Dev"));
 
 // Windows shows toasts under this name; without it they appear as "electron.app.LANDrop".
@@ -62,7 +80,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   // Opening LANDrop again (from Finder or Launchpad) brings up the QR code.
-  app.on("second-instance", () => void showQr());
+  app.on("second-instance", () => openChat());
   // Closing windows leaves LANDrop running in the menu bar.
   app.on("window-all-closed", () => {});
   app.whenReady().then(start, (err) => fail(err));
@@ -124,6 +142,23 @@ async function start() {
     saveSettings();
     return notificationSettings();
   });
+  // The chat window shows update progress in its header and asks to restart; nothing else may.
+  const fromChat = (event: Electron.IpcMainInvokeEvent) => event.sender === chatWindow?.webContents;
+  ipcMain.handle("update:get", (event) => (fromChat(event) ? updateState : undefined));
+  ipcMain.handle("update:install", (event) => {
+    if (fromChat(event)) void installDownloadedUpdate();
+  });
+  ipcMain.handle("app:info", (event) => (fromChat(event) ? { version: app.getVersion(), previous: settings.lastRunVersion } : undefined));
+  ipcMain.handle("app:seen", (event) => {
+    if (!fromChat(event)) return;
+    settings.lastRunVersion = app.getVersion();
+    saveSettings();
+  });
+  // A first install has nothing to compare with, so there is nothing new to explain.
+  if (!settings.lastRunVersion) {
+    settings.lastRunVersion = app.getVersion();
+    saveSettings();
+  }
   ipcMain.handle("qr:save", async (event) => {
     if (!qrWindow || event.sender !== qrWindow.webContents || !joinUrls(PORT)[0]) return;
     const { filePath } = await dialog.showSaveDialog(qrWindow, {
@@ -159,7 +194,7 @@ async function start() {
 
   if (app.isPackaged && !settings.askedAboutLogin) await askAboutLogin();
   // Started by the Mac at login: stay quietly in the menu bar or tray.
-  if (!app.getLoginItemSettings().wasOpenedAtLogin) await showQr();
+  if (!app.getLoginItemSettings().wasOpenedAtLogin) openChat();
 }
 
 function menu(): Menu {
@@ -173,9 +208,7 @@ function menu(): Menu {
     { type: "separator" },
     ...optionItems(),
     { type: "separator" },
-    ...(availableUpdate
-      ? [{ label: `Update Available: LANDrop ${availableUpdate.version}…`, click: () => void showUpdate(availableUpdate!) } satisfies MenuItemConstructorOptions]
-      : []),
+    ...updateMenuItems(),
     { label: "About LANDrop", click: () => app.showAboutPanel() },
     { label: "Check for Updates…", click: () => void checkForUpdates() },
     { type: "separator" },
@@ -307,7 +340,7 @@ function notifyMessage(event: Parameters<typeof describeMessage>[0]) {
 async function checkForUpdates({ quiet = false } = {}) {
   let latest: Release;
   try {
-    const response = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    const response = await fetch(RELEASES_URL, {
       headers: { Accept: "application/vnd.github+json" },
       signal: AbortSignal.timeout(10_000),
     });
@@ -338,23 +371,96 @@ async function checkForUpdates({ quiet = false } = {}) {
   notification.show();
 }
 
-/** Shows what's new in a release and offers the installer for this computer. */
+/** The menu entry for an update: what's new, progress while downloading, or restart once it's here. */
+function updateMenuItems(): MenuItemConstructorOptions[] {
+  if (updateState.phase === "downloading") {
+    const percent = updateState.total ? Math.round((updateState.received / updateState.total) * 100) : 0;
+    return [{ label: `Downloading LANDrop ${updateState.version}… ${percent}%`, enabled: false }];
+  }
+  if (updateState.phase === "ready") {
+    return [{ label: `Restart to Update to LANDrop ${updateState.version}…`, click: () => void installDownloadedUpdate() }];
+  }
+  return availableUpdate ? [{ label: `Update Available: LANDrop ${availableUpdate.version}…`, click: () => void showUpdate(availableUpdate!) }] : [];
+}
+
+function setUpdateState(next: UpdateState) {
+  updateState = next;
+  chatWindow?.webContents.send("update:state", next);
+  tray?.setToolTip(next.phase === "downloading" ? `LANDrop: downloading ${next.version}` : "LANDrop");
+}
+
+/** Shows what's new in a release and offers to download and install it right here. */
 async function showUpdate(release: Release) {
+  if (updateState.phase === "downloading") return openChat();
+  if (updateState.phase === "ready") return void installDownloadedUpdate();
   const { response } = await dialog.showMessageBox({
     message: `LANDrop ${release.version} is available`,
     detail: [
       `You have ${app.getVersion()}.`,
       ...(release.highlights.length ? ["", "What's new:", ...release.highlights.map((line) => `•  ${line}`)] : []),
       "",
-      process.platform === "darwin"
-        ? "Download it, quit LANDrop, then drag the new LANDrop into Applications."
-        : "Download it, then run the installer. It replaces this version.",
+      release.installerUrl
+        ? "LANDrop downloads it here, then restarts into the new version."
+        : "This release has no installer for this computer yet; the release page opens instead.",
     ].join("\n"),
-    buttons: ["Download", "Later"],
+    buttons: [release.installerUrl ? "Download and Install" : "Open Release Page", "Later"],
     defaultId: 0,
     cancelId: 1,
   });
-  if (response === 0) void shell.openExternal(release.installerUrl ?? release.url);
+  if (response !== 0) return;
+  if (!release.installerUrl) return void shell.openExternal(release.url);
+  void downloadUpdate(release, release.installerUrl);
+}
+
+async function downloadUpdate(release: Release, installerUrl: string) {
+  downloadAbort = new AbortController();
+  openChat();
+  setUpdateState({ phase: "downloading", version: release.version, received: 0, total: 0 });
+  try {
+    downloadedInstaller = await downloadInstaller(
+      installerUrl,
+      checksumOf(release.installerDigest),
+      (received, total) => setUpdateState({ phase: "downloading", version: release.version, received, total }),
+      downloadAbort.signal,
+    );
+    setUpdateState({ phase: "ready", version: release.version });
+    new Notification({ title: `LANDrop ${release.version} is ready`, body: "Restart LANDrop to finish updating." }).show();
+  } catch (err) {
+    setUpdateState({ phase: "failed", version: release.version, message: (err as Error).message });
+    const { response } = await dialog.showMessageBox({
+      type: "warning",
+      message: "Couldn't download the update",
+      detail: `${(err as Error).message}. Your current version keeps working.`,
+      buttons: ["Try Again", "Open Release Page", "Cancel"],
+      defaultId: 0,
+      cancelId: 2,
+    });
+    setUpdateState({ phase: "idle" });
+    if (response === 0) void downloadUpdate(release, installerUrl);
+    if (response === 1) void shell.openExternal(release.url);
+  }
+}
+
+/** Quits LANDrop and lets the installer swap in the downloaded version, which then opens. */
+async function installDownloadedUpdate() {
+  const installer = downloadedInstaller;
+  if (updateState.phase !== "ready" || !installer) return;
+  // Only the installed app can replace itself; a development build just shows where the file is.
+  if (!app.isPackaged) return void shell.showItemInFolder(installer);
+  if (MAC) {
+    const bundle = runningBundle();
+    if (!(await canReplaceInPlace(bundle))) {
+      await dialog.showMessageBox({
+        message: "Finish the update by hand",
+        detail: "LANDrop can't replace itself where it is now. The installer opens next: drag LANDrop into Applications.",
+      });
+      return void shell.openPath(installer);
+    }
+    installOnMac(installer, bundle);
+  } else {
+    installOnWindows(installer);
+  }
+  app.quit();
 }
 
 async function askAboutLogin() {

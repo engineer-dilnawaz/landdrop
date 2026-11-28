@@ -22,6 +22,8 @@ export interface Release {
   url: string;
   /** Direct link to this computer's installer, when the release has one. */
   installerUrl?: string;
+  /** SHA-256 of that installer, when GitHub lists it, so a download can be checked. */
+  installerDigest?: string;
   /** The release notes boiled down to a short list of what changed. */
   highlights: string[];
 }
@@ -51,15 +53,17 @@ export function highlightsOf(notes: string | null | undefined): string[] {
 }
 
 export function releaseFrom(
-  json: { tag_name: string; html_url: string; body?: string | null; assets?: { name: string; browser_download_url: string }[] },
+  json: { tag_name: string; html_url: string; body?: string | null; assets?: { name: string; browser_download_url: string; digest?: string }[] },
   platform: NodeJS.Platform = process.platform,
   arch: string = process.arch,
 ): Release {
   const wanted = installerName(platform, arch);
+  const installer = json.assets?.find((a) => a.name === wanted);
   return {
     version: json.tag_name.replace(/^v/, ""),
     url: json.html_url,
-    installerUrl: json.assets?.find((a) => a.name === wanted)?.browser_download_url,
+    installerUrl: installer?.browser_download_url,
+    installerDigest: installer?.digest,
     highlights: highlightsOf(json.body),
   };
 }

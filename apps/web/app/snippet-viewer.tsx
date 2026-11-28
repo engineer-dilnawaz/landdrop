@@ -69,7 +69,7 @@ export function SnippetViewer({ snippet, onClose }: { snippet: Snippet; onClose:
           {copied ? <TickIcon /> : <CopyIcon size={20} />}
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-auto pb-[env(safe-area-inset-bottom)]">
+      <div className="min-h-0 flex-1 select-text overflow-auto pb-[env(safe-area-inset-bottom)]">
         {formatted && page !== undefined ? (
           // Cleaned by DOMPurify: see cleanMarkdown.
           <article className="markdown mx-auto max-w-3xl px-5 py-6 md:px-8" dangerouslySetInnerHTML={{ __html: page }} />

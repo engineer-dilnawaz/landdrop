@@ -113,6 +113,27 @@ export const UpdateGroupRequestSchema = z
   .refine((r) => r.name !== undefined || r.addMembers !== undefined, "Nothing to change");
 export type UpdateGroupRequest = z.input<typeof UpdateGroupRequestSchema>;
 
+// ---------- Chat details everyone in a chat shares ----------
+
+export const MAX_LOUNGE_NAME_LENGTH = 40;
+
+/** What the members of a chat share: its one pinned message and, for the LANDrop group, its name. */
+export interface ChatMeta {
+  chatId: string;
+  pinnedMessageId?: string;
+  /** Only the LANDrop group has one; other groups are renamed through their own route. */
+  name?: string;
+}
+
+/** Pin a message (or `null` to unpin), or name the LANDrop group (or `null` for its default name). */
+export const UpdateChatMetaRequestSchema = z
+  .object({
+    pinnedMessageId: z.string().min(1).max(64).nullable().optional(),
+    name: z.string().trim().max(MAX_LOUNGE_NAME_LENGTH).nullable().optional(),
+  })
+  .refine((r) => r.pinnedMessageId !== undefined || r.name !== undefined, "Nothing to change");
+export type UpdateChatMetaRequest = z.input<typeof UpdateChatMetaRequestSchema>;
+
 // ---------- Read receipts ----------
 
 /** A device has read a chat up to `upTo`: every message created at or before it. */
@@ -290,12 +311,16 @@ export type ServerEvent =
       groups: Group[];
       /** How far each member has read each of this device's chats. */
       reads: ChatRead[];
+      /** The pinned message and shared name of each of this device's chats that has either. */
+      chatMeta: ChatMeta[];
       /** True only for the machine running the LAN server. */
       isHost: boolean;
     }
   | { type: "presence:update"; online: Device[] }
   /** To everyone: a device changed its profile photo. */
   | { type: "device:updated"; device: KnownDevice }
+  /** To a chat's members: its pinned message or name changed. */
+  | { type: "chat:meta"; meta: ChatMeta }
   /** To a chat's members: one of them has read further. */
   | { type: "chat:read"; read: ChatRead }
   /** To a group's members whenever it is created, renamed or gains or loses members. */
@@ -330,6 +355,8 @@ export const routes = {
   messages: `${API_PREFIX}/messages`,
   /** POST CreateGroupRequest → Group. */
   groups: `${API_PREFIX}/groups`,
+  /** PATCH UpdateChatMetaRequest → ChatMeta, for any chat the device is in. */
+  chatMeta: (chatId: string) => `${API_PREFIX}/chats/${chatId}/meta`,
   /** PATCH UpdateGroupRequest → Group. */
   group: (id: string) => `${API_PREFIX}/groups/${id}`,
   /** POST: this device leaves the group. */

@@ -192,6 +192,26 @@
   outline: none;
 }
 
+/* The app isn't a document: pressing and holding must not start selecting text or open iOS's callout.
+   Fields and the file viewers opt back in, so their text can still be copied. */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Nothing on a phone may slide the whole page sideways. Clip, unlike hidden, adds no scroll container of its own. */
+html,
+body {
+  overflow-x: clip;
+}
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 body {
   background: var(--app);
   color: var(--foreground);

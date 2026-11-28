@@ -7,6 +7,8 @@ exports.configured = Boolean(URL_ && TOKEN);
 
 /** Runs commands in one round trip. Returns each command's result, in order. */
 exports.run = async function run(commands) {
+  // Nothing to ask (for example no countries recorded yet): Redis refuses an empty batch, so skip the trip.
+  if (commands.length === 0) return [];
   const response = await fetch(`${URL_}/pipeline`, {
     method: "POST",
     headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },

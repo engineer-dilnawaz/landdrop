@@ -21,7 +21,7 @@ No cloud, no accounts, no app to install on phones.
 
 Moving a video from an Android phone to a Mac, or a document from a Windows laptop to an iPhone, still usually means a cloud upload, a cable, or a messaging app that compresses everything. LANDrop turns your Mac into a private hub on your local network: every phone, tablet and computer on the same Wi-Fi can chat and exchange files directly, at network speed.
 
-- **Private by design.** Messages and files travel only over your own network and are stored on your Mac. Nothing is sent to the internet.
+- **Private by design.** Messages and files travel only over your own network and are stored on your Mac; they are never sent to the internet. The only thing the Mac app sends is one tiny anonymous usage count a day (a random number, version, system and totals, never content), which you can turn off in its menu. [Exactly what is counted](https://landdrop.vercel.app/privacy.html).
 - **No size limit.** Share a 40 GB file. Files too big to copy are streamed live from the sender's device, so others can watch or save them while the sender is online.
 - **Every device.** iPhone, Android, iPad, Windows, Linux and Mac: anything with a modern browser can join.
 - **Zero setup for guests.** Scan a QR code and you're in. No app store, no sign-up.
@@ -94,7 +94,7 @@ A LANDrop server is already running, for example one started from Terminal. Quit
  └──────────────┘                                                      └──────────────┘
 ```
 
-The Mac app embeds a small server that serves the web app and relays chat in real time. Guests only need a browser. Nothing is routed through the internet.
+The Mac app embeds a small server that serves the web app and relays chat in real time. Guests only need a browser. Your messages and files are not routed through the internet.
 
 ## Project structure
 

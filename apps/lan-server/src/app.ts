@@ -210,6 +210,11 @@ export async function buildApp({
 
   // Read on each request: the host may have changed networks since it started.
   app.get(routes.join, async () => ({ urls: joinUrls((app.server.address() as { port: number }).port) }));
+  // Only this computer's own app may ask; guests' browsers get nothing.
+  app.get(routes.usage, async (request, reply) => {
+    if (!isHost(request.socket.remoteAddress)) return reply.code(403).send({ message: "Only the host can read this" });
+    return store.usageSince(Date.now() - 24 * 60 * 60 * 1000);
+  });
 
   let networkScan: { at: number; devices: Promise<NetworkDevice[]> } | undefined;
   app.get(routes.network, async (request) => {

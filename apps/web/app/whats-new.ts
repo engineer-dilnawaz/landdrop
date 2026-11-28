@@ -9,6 +9,16 @@ export interface Feature {
 /** What each release added, newest first. Add an entry here when a release ships something people will notice. */
 export const RELEASES: { version: string; features: Feature[] }[] = [
   {
+    version: "0.2.7",
+    features: [
+      {
+        title: "Anonymous usage statistics",
+        description: "Once a day LANDrop sends a few counts: its version, whether this is a Mac or PC, and how many devices joined. Never a message, a file or a name.",
+        tryIt: "Turn it off any time in the LANDrop menu with Share Anonymous Usage Statistics, or choose What Is Shared.",
+      },
+    ],
+  },
+  {
     version: "0.2.5",
     features: [
       {

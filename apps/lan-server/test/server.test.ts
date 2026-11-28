@@ -1430,3 +1430,27 @@ describe("shared pins and name", () => {
     expect((await alice.waitFor("chat:meta", (e) => !e.meta.name)).meta).toEqual({ chatId: GROUP_CHAT_ID });
   });
 });
+
+describe("anonymous usage counts", () => {
+  it("gives the host totals for its guests and nothing else, and refuses everyone else", async () => {
+    // Privacy promise: the usage ping is only ever counts. Nobody but the host's own app may read even those.
+    await app.close();
+    let fromHost = false;
+    app = await buildApp({ dataDir, isHost: () => fromHost });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+    const phone = await join_("Alex's Galaxy");
+    expect((await api(phone, "POST", routes.messages, { chatId: GROUP_CHAT_ID, text: "a private secret" })).status).toBe(201);
+    await attach(phone, Buffer.from("x"), "holiday-photo.jpg", "image/jpeg");
+
+    expect((await fetch(base + routes.usage)).status).toBe(403);
+    fromHost = true;
+    const answer = await fetch(base + routes.usage);
+    const counts = await answer.json();
+    expect(counts).toEqual({ devices: 1, messages: 2, files: 1 });
+    const raw = JSON.stringify(counts);
+    expect(raw).not.toContain("secret");
+    expect(raw).not.toContain("holiday");
+    expect(raw).not.toContain("Galaxy");
+  });
+});

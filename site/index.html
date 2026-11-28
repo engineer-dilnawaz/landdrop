@@ -7,7 +7,7 @@
   <meta name="description" content="Chat and share files of any size with every phone and computer on your Wi-Fi. No cloud, no accounts, nothing to install on phones.">
   <meta name="color-scheme" content="light dark">
   <meta property="og:title" content="LANDrop">
-  <meta property="og:description" content="Chat and share files of any size with every device on your Wi-Fi. Nothing leaves your network.">
+  <meta property="og:description" content="Chat and share files of any size with every device on your Wi-Fi. Your messages and files never leave your network.">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -383,6 +383,10 @@
     .closing p { color: rgba(255, 255, 255, 0.8); margin: 14px 0 0; max-width: 44ch; }
     .closing .btn { background: #fff; color: #022c22; box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.4); }
     .closing .rings { position: absolute; right: -140px; top: -140px; width: 480px; height: 480px; pointer-events: none; opacity: 0.25; }
+    /* Real numbers, shown only once they are worth showing: the section stays hidden until the site's own stats say so. */
+    .numbers .figures { display: flex; flex-wrap: wrap; gap: 20px 64px; margin-top: 36px; }
+    .numbers .figure strong { display: block; font: 700 clamp(36px, 6vw, 60px)/1 var(--display); letter-spacing: -0.04em; }
+    .numbers .figure span { display: block; color: var(--muted); font-size: 15px; margin-top: 8px; }
     footer { padding: 48px 0 56px; color: var(--muted); font-size: 14px; }
     footer .wrap { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; }
     footer a { color: var(--muted); }
@@ -437,7 +441,7 @@
       <div class="wrap">
         <div>
           <h1><span>Your Wi-Fi is</span><span>the cloud now.</span></h1>
-          <p class="lead">Chat and send files of any size between every phone, tablet and computer in the room. It all moves across your own network, so nothing is uploaded anywhere.</p>
+          <p class="lead">Chat and send files of any size between every phone, tablet and computer in the room. It all moves across your own network, so your messages and files are never uploaded anywhere.</p>
           <div class="cta-row">
             <a class="btn" data-dl href="https://github.com/engineer-dilnawaz/landrop/releases/latest/download/LANDrop-mac-arm64.dmg">
               <svg class="dl-arrow"><use href="#i-download"/></svg><span>Download for Mac</span>
@@ -506,7 +510,7 @@
           </div>
           <div class="stats">
             <div><b id="moved">0 GB</b><span>moved today</span></div>
-            <div><b>0 bytes</b><span>sent to the internet</span></div>
+            <div><b>0 bytes</b><span>of your messages or files sent to the internet</span></div>
             <div><b id="speed">0 MB/s</b><span>across your Wi-Fi</span></div>
           </div>
         </div>
@@ -731,8 +735,8 @@
           <div>
             <details><summary>Is LANDrop free?</summary><p>Yes. The Mac app is free, and other devices don't need anything installed.</p></details>
             <details><summary>Which computers can host it?</summary><p>Macs (Apple silicon or Intel) and Windows PCs. Any device with a modern web browser can join: iPhone, iPad, Android, Windows, Linux or another Mac.</p></details>
-            <details data-os="mac"><summary>Where are my messages and files kept?</summary><p>On the Mac running LANDrop, in a folder called .landrop in your home folder. Nothing is sent to a server, and the chat stays until you clear it.</p></details>
-            <details data-os="win" hidden><summary>Where are my messages and files kept?</summary><p>On the PC running LANDrop, in a folder called .landrop in your user folder, for example C:\Users\you\.landrop. Nothing is sent to a server, and the chat stays until you clear it.</p></details>
+            <details data-os="mac"><summary>Where are my messages and files kept?</summary><p>On the Mac running LANDrop, in a folder called .landrop in your home folder. Your messages and files are never sent to a server, and the chat stays until you clear it.</p></details>
+            <details data-os="win" hidden><summary>Where are my messages and files kept?</summary><p>On the PC running LANDrop, in a folder called .landrop in your user folder, for example C:\Users\you\.landrop. Your messages and files are never sent to a server, and the chat stays until you clear it.</p></details>
             <details><summary>Does it need the internet?</summary><p>No. Devices only need to be on the same Wi-Fi or local network as the computer running LANDrop.</p></details>
           </div>
           <div>
@@ -750,13 +754,25 @@
       </div>
     </section>
 
+    <section class="block numbers" id="numbers" hidden>
+      <div class="wrap">
+        <h2>Quietly, in use</h2>
+        <p class="intro">Counted without names, accounts or tracking. <a href="privacy.html">See exactly what is counted.</a></p>
+        <div class="figures">
+          <div class="figure"><strong data-stat="downloads">0</strong><span>downloads</span></div>
+          <div class="figure"><strong data-stat="activeWeek">0</strong><span>people using it this week</span></div>
+          <div class="figure" data-needs="countries" hidden><strong data-stat="countries">0</strong><span>countries</span></div>
+        </div>
+      </div>
+    </section>
+
     <section class="closing">
       <div class="wrap">
         <div class="card reveal">
           <svg class="rings" viewBox="0 0 200 200" aria-hidden="true"><g fill="none" stroke="#fff"><circle cx="100" cy="100" r="30"/><circle cx="100" cy="100" r="55"/><circle cx="100" cy="100" r="80"/><circle cx="100" cy="100" r="99"/></g></svg>
           <div>
             <h2>Turn your Mac into the hub of the room</h2>
-            <p>Free download. Phones join with a scan, and nothing ever leaves your network.</p>
+            <p>Free download. Phones join with a scan, and your messages and files never leave your network.</p>
           </div>
           <a class="btn" data-dl href="https://github.com/engineer-dilnawaz/landrop/releases/latest/download/LANDrop-mac-arm64.dmg"><svg class="dl-arrow"><use href="#i-download"/></svg><span>Download for Mac</span></a>
         </div>
@@ -769,6 +785,7 @@
       <span class="grow">LANDrop. Everything stays on your Wi-Fi.</span>
       <a href="https://github.com/engineer-dilnawaz/landrop" target="_blank" rel="noopener">Source on GitHub</a>
       <a href="https://github.com/engineer-dilnawaz/landrop/releases" target="_blank" rel="noopener">Releases</a>
+      <a href="privacy.html">Privacy</a>
       <span>Made by Dilnawaz Khan</span>
     </div>
   </footer>
@@ -1042,5 +1059,18 @@
     setClock(); setInterval(setClock, 30000);
   })();
   </script>
+  <script>
+    // The numbers appear only when the site's stats say they are worth showing; otherwise nothing changes.
+    fetch("/api/stats").then(function (r) { return r.json(); }).then(function (s) {
+      if (!s || !s.show) return;
+      document.querySelectorAll("[data-stat]").forEach(function (el) {
+        var n = s[el.getAttribute("data-stat")];
+        if (typeof n === "number") el.textContent = n.toLocaleString();
+      });
+      if (s.countries >= 2) document.querySelector("[data-needs=countries]").hidden = false;
+      document.getElementById("numbers").hidden = false;
+    }).catch(function () {});
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

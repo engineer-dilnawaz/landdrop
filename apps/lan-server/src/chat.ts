@@ -237,6 +237,19 @@ export class ChatStore {
     return true;
   }
 
+  /**
+   * Counts only, for the anonymous usage ping: other devices seen, messages and files sent since then.
+   * The host's own chat window isn't a guest, so it isn't counted. Nothing about their content leaves here.
+   */
+  usageSince(since: number): { devices: number; messages: number; files: number } {
+    const count = (sql: string) => (this.db.prepare(sql).get(since) as { n: number }).n;
+    return {
+      devices: count("SELECT COUNT(*) AS n FROM devices WHERE last_seen >= ? AND (machine IS NULL OR machine != 'host')"),
+      messages: count("SELECT COUNT(*) AS n FROM messages WHERE created_at >= ?"),
+      files: count("SELECT COUNT(*) AS n FROM messages WHERE created_at >= ? AND att_name IS NOT NULL"),
+    };
+  }
+
   /** Every device that has ever joined, with its current name and when it was last connected. */
   directory(): KnownDevice[] {
     const rows = this.db

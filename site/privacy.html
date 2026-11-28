@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy: LANDrop</title>
+  <meta name="description" content="Exactly what LANDrop counts, and what it never does.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root { --paper: #fafafa; --ink: #09090b; --muted: #71717a; --line: #e4e4e7; --signal: #059669; }
+    @media (prefers-color-scheme: dark) { :root { --paper: #09090b; --ink: #fafafa; --muted: #a1a1aa; --line: #27272a; --signal: #10b981; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+    main { max-width: 680px; margin: 0 auto; padding: 56px 24px 96px; }
+    a { color: var(--signal); }
+    h1 { font-size: 40px; line-height: 1.1; letter-spacing: -0.03em; margin: 0 0 12px; }
+    h2 { font-size: 20px; margin: 40px 0 8px; letter-spacing: -0.01em; }
+    p, li { color: var(--muted); }
+    p strong, li strong { color: var(--ink); }
+    ul { padding-left: 20px; }
+    li { margin: 6px 0; }
+    .back { display: inline-block; margin-bottom: 32px; font-size: 15px; }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="/">← LANDrop</a>
+    <h1>Privacy</h1>
+    <p>LANDrop was built so you can share with your own devices without the internet and without worrying about who sees it. Your messages and files travel only over your Wi-Fi and are stored only on your computer. That does not change.</p>
+
+    <h2>What the app counts</h2>
+    <p>About once a day, while LANDrop is open on your Mac or PC, it sends one small message so its author can see whether it is useful and what to improve. It contains:</p>
+    <ul>
+      <li><strong>A random number</strong> made on your computer the first time. It is not linked to you, your name, your accounts or your hardware, and it only tells one install from another.</li>
+      <li><strong>The LANDrop version</strong>, and whether this is a Mac or Windows PC and which kind of processor.</li>
+      <li><strong>Three totals from the last 24 hours:</strong> how many other devices connected, how many messages were sent, and how many files were shared. Only the numbers.</li>
+      <li><strong>Your country</strong>, worked out by the website's host from the request. Your IP address is not read or saved.</li>
+    </ul>
+
+    <h2>What it never sends</h2>
+    <ul>
+      <li>Messages, files, file names or folder names</li>
+      <li>Names of you or your devices, or your network's name or address</li>
+      <li>Anything about your contacts, location or other apps</li>
+    </ul>
+
+    <h2>How it is kept</h2>
+    <p>Counts are stored as daily totals and counters. The random number goes into a structure that keeps only a count and cannot give it back. There is no log of individual messages from your computer.</p>
+
+    <h2>Turning it off</h2>
+    <p>Open the LANDrop menu and untick <strong>Share Anonymous Usage Statistics</strong>. Nothing is sent after that. LANDrop works exactly the same either way.</p>
+
+    <h2>This website</h2>
+    <p>The website uses Vercel Web Analytics to count visits (pages viewed, country, device type, and where a visit came from). It sets no cookies and does not follow you from site to site.</p>
+
+    <h2>Phones and other browsers</h2>
+    <p>Devices that join your LANDrop through a browser send nothing to this website or anyone else. They only talk to your computer on your Wi-Fi.</p>
+
+    <p style="margin-top:40px">Questions? Open an issue on <a href="https://github.com/engineer-dilnawaz/landrop/issues">GitHub</a>.</p>
+  </main>
+</body>
+</html>

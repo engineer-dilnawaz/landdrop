@@ -1,14 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { homedir, release, tmpdir } from "node:os";
 import { join } from "node:path";
 import { joinUrls } from "@landrop/lan-server/app";
 import { startHost } from "@landrop/lan-server/host";
-import { DEFAULT_LAN_PORT } from "@landrop/protocol";
+import { DEFAULT_LAN_PORT, routes } from "@landrop/protocol";
 import { BrowserWindow, Menu, Notification, Tray, app, nativeImage, clipboard, dialog, ipcMain, powerMonitor, powerSaveBlocker, shell, ShareMenu, type MenuItemConstructorOptions } from "electron";
 import QRCode from "qrcode";
 import { describeMessage, isNewer, releaseFrom, type Release } from "./notices";
 import { MAX_SCREENSHOTS, parseReport, saveReport } from "./reports";
+import { sendUsagePing } from "./usage";
 import { canReplaceInPlace, checksumOf, downloadInstaller, installOnMac, installOnWindows, runningBundle } from "./updater";
 
 /**
@@ -30,6 +32,8 @@ const TRAY = MAC ? "menu bar" : "system tray";
 const REPO = "engineer-dilnawaz/landrop";
 const WEBSITE = "https://landdrop.vercel.app";
 // Overridable so the update flow can be tried against a local stand-in for GitHub.
+// Overridable so the ping can be tried against a local stand-in; a development build never pings otherwise.
+const USAGE_URL = process.env.LANDROP_USAGE_URL ?? `${WEBSITE}/api/ping`;
 const RELEASES_URL = process.env.LANDROP_RELEASES_URL ?? `https://api.github.com/repos/${REPO}/releases/latest`;
 
 /** How often a running LANDrop looks for a newer release. */
@@ -45,6 +49,10 @@ interface Settings {
   announcedVersion?: string;
   /** The version that last ran, so the first launch after an update can show what's new. */
   lastRunVersion?: string;
+  /** Whether to send the anonymous usage ping (see usage.ts). On unless turned off in the menu. */
+  usage: boolean;
+  /** Random, made the first time a ping is sent; it tells installs apart and identifies no one. */
+  installId?: string;
 }
 
 /** Where an update is: shown in the chat window's header and the menus. */
@@ -56,7 +64,7 @@ type UpdateState =
   | { phase: "failed"; version: string; message: string };
 
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
-let settings: Settings = { askedAboutLogin: false, keepAwake: false, notifications: true, previews: true };
+let settings: Settings = { askedAboutLogin: false, keepAwake: false, notifications: true, previews: true, usage: true };
 let availableUpdate: Release | undefined;
 let updateState: UpdateState = { phase: "idle" };
 /** The installer that finished downloading, ready to run when LANDrop restarts. */
@@ -198,6 +206,9 @@ async function start() {
 
   void checkForUpdates({ quiet: true });
   setInterval(() => void checkForUpdates({ quiet: true }), UPDATE_CHECK_MS).unref();
+  // A minute after start, so it never competes with opening, then about once a day while LANDrop stays open.
+  setTimeout(() => void reportUsage(), 60_000).unref();
+  setInterval(() => void reportUsage(), 24 * 60 * 60 * 1000).unref();
 
   if (app.isPackaged && !settings.askedAboutLogin) await askAboutLogin();
   // Started by the Mac at login: stay quietly in the menu bar or tray.
@@ -265,6 +276,18 @@ function optionItems(): MenuItemConstructorOptions[] {
         saveSettings();
       },
     },
+    { type: "separator" },
+    {
+      label: "Share Anonymous Usage Statistics",
+      type: "checkbox",
+      checked: settings.usage,
+      click: (item) => {
+        settings.usage = item.checked;
+        saveSettings();
+      },
+    },
+    { label: "What Is Shared…", click: () => void shell.openExternal(`${WEBSITE}/privacy.html`) },
+    { type: "separator" },
     {
       label: `Keep ${COMPUTER === "Mac" ? "Mac" : "Computer"} Awake While Plugged In`,
       type: "checkbox",
@@ -393,6 +416,27 @@ function mockUpdate(step: 0 | 1) {
     setUpdateState(received < total ? { phase: "downloading", version, received, total } : { phase: "ready", version });
     if (received >= total) clearInterval(mockTimer);
   }, 250);
+}
+
+/** Sends today's anonymous usage ping, unless it's turned off or this is a development build. */
+async function reportUsage() {
+  if (!settings.usage || (!app.isPackaged && !process.env.LANDROP_USAGE_URL)) return;
+  if (!settings.installId) {
+    settings.installId = randomUUID();
+    saveSettings();
+  }
+  const counts = (await fetch(`http://localhost:${PORT}${routes.usage}`)
+    .then((r) => (r.ok ? r.json() : undefined))
+    .catch(() => undefined)) as { devices?: number; messages?: number; files?: number } | undefined;
+  await sendUsagePing(USAGE_URL, {
+    id: settings.installId,
+    version: app.getVersion(),
+    os: process.platform,
+    arch: process.arch,
+    guests: counts?.devices ?? 0,
+    messages: counts?.messages ?? 0,
+    files: counts?.files ?? 0,
+  });
 }
 
 /** The menu entry for an update: what's new, progress while downloading, or restart once it's here. */

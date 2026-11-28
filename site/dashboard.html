@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>LANDrop dashboard</title>
+  <meta name="color-scheme" content="light dark">
+  <style>
+    :root { --paper: #fafafa; --card: #fff; --ink: #09090b; --muted: #71717a; --line: #e4e4e7; --signal: #059669; }
+    @media (prefers-color-scheme: dark) { :root { --paper: #09090b; --card: #0c0c0e; --ink: #fafafa; --muted: #a1a1aa; --line: #27272a; --signal: #10b981; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+    h1 { font-size: 24px; margin: 0 0 20px; letter-spacing: -0.02em; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); margin-bottom: 16px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+    .big { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
+    .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
+    .bars div { flex: 1; background: var(--signal); border-radius: 3px 3px 0 0; min-height: 2px; opacity: .85; }
+    .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); }
+    .row:last-child { border: 0; }
+    form { display: flex; gap: 8px; max-width: 420px; }
+    input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; }
+    button { padding: 10px 16px; border-radius: 10px; border: 0; background: var(--signal); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+    .err { color: #dc2626; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>LANDrop dashboard</h1>
+    <form id="login">
+      <input id="token" type="password" placeholder="Dashboard token" autocomplete="current-password" aria-label="Dashboard token">
+      <button>Open</button>
+    </form>
+    <p class="err" id="err" hidden></p>
+    <div id="out" hidden></div>
+  </main>
+  <script>
+    var out = document.getElementById("out"), err = document.getElementById("err");
+    var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]; }); };
+    var sum = function (arr, k) { return arr.reduce(function (n, d) { return n + d[k]; }, 0); };
+    var list = function (title, obj) {
+      var rows = Object.entries(obj || {}).map(function (e) { return '<div class="row"><span>' + esc(e[0]) + "</span><strong>" + e[1] + "</strong></div>"; }).join("");
+      return '<div class="card"><h2>' + title + "</h2>" + (rows || '<span class="sub">No data yet</span>') + "</div>";
+    };
+    function render(d) {
+      if (!d.configured) { out.innerHTML = '<div class="card">The store is not connected yet. Add the Upstash Redis integration to the Vercel project.</div>'; return; }
+      var s = d.series, max = Math.max.apply(null, s.map(function (x) { return x.active; }).concat([1]));
+      var perSession = sum(s, "installs") ? (sum(s, "guests") / sum(s, "installs")).toFixed(1) : "0";
+      var dl = d.downloads || { total: "n/a", byAsset: {}, byRelease: {} };
+      out.innerHTML =
+        '<div class="grid">' +
+        '<div class="card"><div class="big">' + (dl.total) + '</div><div class="sub">installer downloads (includes in-app updates)</div></div>' +
+        '<div class="card"><div class="big">' + d.active7 + '</div><div class="sub">active this week</div></div>' +
+        '<div class="card"><div class="big">' + d.active30 + '</div><div class="sub">active in 30 days</div></div>' +
+        '<div class="card"><div class="big">' + perSession + '</div><div class="sub">guest devices per active install per day</div></div>' +
+        "</div>" +
+        '<div class="card" style="margin-bottom:16px"><h2>Active installs per day, last 30 days</h2><div class="bars">' +
+        s.map(function (x) { return '<div title="' + x.day + ": " + x.active + '" style="height:' + Math.max(2, (x.active / max) * 100) + '%"></div>'; }).join("") +
+        '</div></div><div class="grid">' +
+        '<div class="card"><h2>30-day totals</h2><div class="row"><span>Messages</span><strong>' + sum(s, "messages") + '</strong></div><div class="row"><span>Files shared</span><strong>' + sum(s, "files") + '</strong></div><div class="row"><span>Guest devices</span><strong>' + sum(s, "guests") + "</strong></div></div>" +
+        list("Countries", d.byCountry) + list("System", d.byOs) + list("Versions", d.byVersion) +
+        list("Downloads by file", dl.byAsset) + list("Downloads by release", dl.byRelease) + "</div>";
+      out.hidden = false;
+    }
+    function load(token) {
+      err.hidden = true;
+      fetch("/api/admin", { headers: { Authorization: "Bearer " + token } }).then(function (r) {
+        if (r.status === 401) throw new Error("That token is not right.");
+        if (!r.ok) throw new Error("Something went wrong (" + r.status + ").");
+        return r.json();
+      }).then(function (d) { sessionStorage.setItem("landrop-dash", token); document.getElementById("login").hidden = true; render(d); })
+        .catch(function (e) { sessionStorage.removeItem("landrop-dash"); err.textContent = e.message; err.hidden = false; });
+    }
+    document.getElementById("login").addEventListener("submit", function (e) { e.preventDefault(); load(document.getElementById("token").value); });
+    var saved = sessionStorage.getItem("landrop-dash"); if (saved) load(saved);
+  </script>
+</body>
+</html>

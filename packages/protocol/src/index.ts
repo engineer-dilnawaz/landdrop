@@ -349,6 +349,8 @@ export const routes = {
   health: `${API_PREFIX}/health`,
   /** GET → { urls: string[] }: addresses other devices on the network can open to join. */
   join: `${API_PREFIX}/join`,
+  /** GET (host machine only) → { devices, messages, files }: totals for the last 24 hours, for the anonymous usage ping. Never content. */
+  usage: `${API_PREFIX}/usage`,
   /** GET → { devices: NetworkDevice[] }: what else is on the host's network, minus devices using LANDrop. Takes a few seconds. */
   network: `${API_PREFIX}/network`,
   ws: `${API_PREFIX}/ws`,

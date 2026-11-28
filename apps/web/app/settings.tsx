@@ -218,7 +218,7 @@ function AppearancePage() {
             role="radio"
             aria-checked={theme === id}
             onClick={() => setTheme(id)}
-            className={`group relative flex flex-col gap-2 rounded-xl p-2 text-left transition-all duration-300 ease-out hover:-translate-y-0.5 active:scale-[0.97] motion-reduce:transition-none ${
+            className={`group relative flex flex-col items-stretch gap-2 rounded-xl p-2 text-left transition-all duration-300 ease-out hover:-translate-y-0.5 active:scale-[0.97] motion-reduce:transition-none ${
               theme === id ? "bg-chip-on" : "bg-field"
             }`}
           >

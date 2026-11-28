@@ -204,6 +204,8 @@ body {
 html,
 body {
   overflow-x: clip;
+  /* No rubber-band or pull-to-refresh: it flickers the app and can reload it by accident. */
+  overscroll-behavior: none;
 }
 input,
 textarea,
@@ -627,4 +629,37 @@ body {
 .markdown li:has(> input[type="checkbox"]) {
   list-style: none;
   margin-left: -1.3em;
+}
+
+/* Phones zoom the page when a field under 16px gets focus (iOS Safari) and never zoom back on their own. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* The update card: the arrow nods while a download runs, the icon ripples when one is offered, and the bar glides. */
+@keyframes update-bob {
+  0%, 100% { transform: translateY(-2px); }
+  50% { transform: translateY(2px); }
+}
+@keyframes update-ripple {
+  from { transform: scale(1); opacity: 0.5; }
+  to { transform: scale(1.7); opacity: 0; }
+}
+@keyframes update-sheen {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.update-bob { animation: update-bob 900ms ease-in-out infinite; }
+.update-ripple { animation: update-ripple 1600ms ease-out infinite; }
+.update-fill {
+  background-image: linear-gradient(90deg, transparent 30%, rgb(255 255 255 / 0.35) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: update-sheen 1800ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-bob, .update-ripple, .update-fill { animation: none; }
 }

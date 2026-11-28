@@ -50,6 +50,7 @@ interface Settings {
 /** Where an update is: shown in the chat window's header and the menus. */
 type UpdateState =
   | { phase: "idle" }
+  | { phase: "available"; version: string }
   | { phase: "downloading"; version: string; received: number; total: number }
   | { phase: "ready"; version: string }
   | { phase: "failed"; version: string; message: string };
@@ -146,8 +147,14 @@ async function start() {
   const fromChat = (event: Electron.IpcMainInvokeEvent) => event.sender === chatWindow?.webContents;
   ipcMain.handle("update:get", (event) => (fromChat(event) ? updateState : undefined));
   ipcMain.handle("update:install", (event) => {
-    if (fromChat(event)) void installDownloadedUpdate();
+    if (!fromChat(event)) return;
+    if (MOCK_UPDATE) return mockUpdate(0);
+    void installDownloadedUpdate();
   });
+  ipcMain.handle("update:download", (event) => {
+    if (fromChat(event) && MOCK_UPDATE) mockUpdate(1);
+  });
+  if (MOCK_UPDATE) mockUpdate(0);
   ipcMain.handle("app:info", (event) => (fromChat(event) ? { version: app.getVersion(), previous: settings.lastRunVersion } : undefined));
   ipcMain.handle("app:seen", (event) => {
     if (!fromChat(event)) return;
@@ -369,6 +376,23 @@ async function checkForUpdates({ quiet = false } = {}) {
   const notification = new Notification({ title: `LANDrop ${latest.version} is available`, body: "Click to see what's new." });
   notification.on("click", () => void showUpdate(latest));
   notification.show();
+}
+
+/** Preview only: LANDROP_MOCK_UPDATE=1 walks the header through offered, downloading and ready; Restart starts over. */
+const MOCK_UPDATE = process.env.LANDROP_MOCK_UPDATE === "1";
+let mockTimer: NodeJS.Timeout | undefined;
+function mockUpdate(step: 0 | 1) {
+  const version = "0.2.5";
+  const total = 133_000_000;
+  clearInterval(mockTimer);
+  if (step === 0) return setUpdateState({ phase: "available", version });
+  let received = 0;
+  setUpdateState({ phase: "downloading", version, received, total });
+  mockTimer = setInterval(() => {
+    received = Math.min(total, received + total / 40);
+    setUpdateState(received < total ? { phase: "downloading", version, received, total } : { phase: "ready", version });
+    if (received >= total) clearInterval(mockTimer);
+  }, 250);
 }
 
 /** The menu entry for an update: what's new, progress while downloading, or restart once it's here. */

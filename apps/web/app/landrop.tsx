@@ -375,6 +375,35 @@ export default function LanDrop() {
     return json as T;
   }
 
+  // iPhones keep the page the same size when the keyboard opens and scroll it up instead, which pushes the
+  // header away and leaves the composer half hidden. Sizing the app to the visible area keeps both on screen.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport || !matchMedia("(pointer: coarse)").matches) return;
+    const root = document.documentElement;
+    const fit = () => {
+      // Only while the keyboard is up. At any other time the page keeps its normal height, so a pull-down
+      // bounce or the browser's toolbar moving can never resize the app under the finger.
+      if (window.innerHeight - viewport.height > 100) {
+        root.style.setProperty("--vvh", `${viewport.height}px`);
+        root.style.setProperty("--vvt", `${viewport.offsetTop}px`);
+        // Safari pans the page when the keyboard opens; undo that.
+        if (viewport.offsetTop > 30) window.scrollTo(0, 0);
+      } else {
+        root.style.removeProperty("--vvh");
+        root.style.removeProperty("--vvt");
+      }
+    };
+    fit();
+    viewport.addEventListener("resize", fit);
+    viewport.addEventListener("scroll", fit);
+    return () => {
+      viewport.removeEventListener("resize", fit);
+      viewport.removeEventListener("scroll", fit);
+      root.style.removeProperty("--vvh");
+      root.style.removeProperty("--vvt");
+    };
+  }, []);
   useEffect(() => {
     const loaded = loadIdentity();
     identityRef.current = loaded.identity;
@@ -988,7 +1017,7 @@ export default function LanDrop() {
       {/* App chrome, not a document: no text selection or iOS callouts anywhere except text fields. */}
       <div
         {...dropHandlers}
-        className="relative flex h-dvh flex-col bg-app select-none [-webkit-touch-callout:none] [-webkit-user-select:none]"
+        className="relative flex h-[var(--vvh,100svh)] flex-col bg-app select-none [-webkit-touch-callout:none] [-webkit-user-select:none]"
       >
         <UpdateBar />
         <WhatsNew />

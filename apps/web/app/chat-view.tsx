@@ -159,11 +159,15 @@ export function ChatView({
   // of view; so does the phone keyboard opening. Stay at the bottom unless the user scrolled up.
   useEffect(() => {
     const scroller = scrollerRef.current!;
+    let height = scroller.clientHeight;
     const onScroll = () => {
+      // The keyboard opening shrinks the list and the browser shifts it while it settles: that isn't the user scrolling up.
+      if (scroller.clientHeight !== height) return;
       atBottomRef.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48;
     };
     const observer = new ResizeObserver(() => {
       if (atBottomRef.current) scroller.scrollTop = scroller.scrollHeight;
+      height = scroller.clientHeight;
     });
     scroller.addEventListener("scroll", onScroll, { passive: true });
     observer.observe(scroller);
@@ -344,7 +348,7 @@ export function ChatView({
                             onClick={() => onOpenSender(m.senderId!)}
                             aria-label={`Message ${nameOf(m.senderId, m.senderName)}`}
                             title={`Message ${nameOf(m.senderId, m.senderName)}`}
-                            className="block rounded-full transition-opacity hover:opacity-80"
+                            className="block shrink-0 rounded-full transition-opacity hover:opacity-80"
                           >
                             <Avatar name={nameOf(m.senderId, m.senderName)} seed={m.senderId} />
                           </button>
@@ -352,7 +356,7 @@ export function ChatView({
                           <Avatar name={nameOf(m.senderId, m.senderName)} seed={m.senderId ?? m.senderName} />
                         )
                       ) : (
-                        <span className="block size-8" />
+                        <span className="block size-8 shrink-0" />
                       )
                     }
                   />

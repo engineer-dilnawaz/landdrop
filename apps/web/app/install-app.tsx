@@ -1,23 +1,38 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { CloseIcon, FILLED_BUTTON, Logo, Sheet, ShareIcon, TEXT_BUTTON } from "./ui";
 
 /** Chrome's own "install" offer; it only exists once the browser decides the page can be installed. */
 type InstallOffer = Event & { prompt(): Promise<void> };
 
 const DISMISSED_KEY = "landrop.install-dismissed";
+const INSTALLED_KEY = "landrop.installed";
 let offer: InstallOffer | undefined;
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
 
+function markInstalled() {
+  try {
+    localStorage.setItem(INSTALLED_KEY, "1");
+  } catch {
+    // Private browsing: it simply asks again next time.
+  }
+}
+
 if (typeof window !== "undefined") {
+  // Opened from the home screen icon (the manifest's start URL): it's installed, whatever the browser says.
+  if (new URLSearchParams(location.search).get("source") === "home") {
+    markInstalled();
+  }
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     offer = e as InstallOffer;
     notify();
   });
   window.addEventListener("appinstalled", () => {
+    markInstalled();
     offer = undefined;
     notify();
   });
@@ -37,8 +52,16 @@ function read(): Kind {
   const android = /Android/.test(ua);
   if (!ios && !android) return "none";
   const installed = matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone;
-  if (installed) return "none";
+  if (installed || installedBefore()) return "none";
   return ios ? "ios" : offer ? "android-ready" : "android";
+}
+
+function installedBefore() {
+  try {
+    return localStorage.getItem(INSTALLED_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 function dismissed() {
@@ -54,23 +77,34 @@ export function useInstallApp() {
   const kind = useSyncExternalStore(subscribe, read, (): Kind => "none");
   const [steps, setSteps] = useState(false);
   const [hidden, setHidden] = useState(dismissed);
+  const dismiss = () => {
+    setHidden(true);
+    try {
+      localStorage.setItem(DISMISSED_KEY, "1");
+    } catch {
+      // Private browsing: it simply asks again next time.
+    }
+  };
   return {
     kind,
     /** The banner is offered until it's dismissed; the Settings row stays. */
     banner: kind !== "none" && !hidden,
-    dismiss() {
-      setHidden(true);
-      try {
-        localStorage.setItem(DISMISSED_KEY, "1");
-      } catch {
-        // Private browsing: it simply asks again next time.
-      }
-    },
+    dismiss,
     install() {
-      if (offer) void offer.prompt();
+      // LANDrop is on plain http, which Android only lets you add as a shortcut: its "Install app" fails there.
+      if (offer && isSecureContext) void offer.prompt();
       else setSteps(true);
     },
-    sheet: steps ? <InstallSteps ios={kind === "ios"} onClose={() => setSteps(false)} /> : null,
+    // Android can't tell when a shortcut was added, so once the steps have been shown the banner has done its job.
+    sheet: steps ? (
+      <InstallSteps
+        ios={kind === "ios"}
+        onClose={() => {
+          setSteps(false);
+          dismiss();
+        }}
+      />
+    ) : null,
   };
 }
 
@@ -95,39 +129,60 @@ export function InstallBanner({ install, onDismiss }: { install: () => void; onD
   );
 }
 
+/** A bouncing arrow at the screen edge where the browser's own button is, so nobody has to hunt for it. */
+function Pointer({ ios }: { ios: boolean }) {
+  return createPortal(
+    <div
+      aria-hidden
+      className={`update-bob pointer-events-none fixed z-[60] flex flex-col items-center gap-1 text-white ${
+        ios ? "bottom-1 right-5" : "right-3 top-1 flex-col-reverse"
+      }`}
+    >
+      {ios && <span className="text-[12px] font-semibold">Share</span>}
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={ios ? "" : "rotate-180"}>
+        <path d="M12 4v14M6 12l6 6 6-6" />
+      </svg>
+    </div>,
+    document.body,
+  );
+}
+
 function InstallSteps({ ios, onClose }: { ios: boolean; onClose: () => void }) {
   const steps = ios
     ? [
         <>
-          Tap the <ShareIcon size={18} /> Share button in Safari&rsquo;s toolbar.
+          Tap <ShareIcon size={18} /> Share at the bottom (under the &middot;&middot;&middot; menu on newer iPhones).
         </>,
-        <>Scroll down and choose &ldquo;Add to Home Screen&rdquo;.</>,
-        <>Tap Add. LANDrop appears with the other apps.</>,
+        <>Choose &ldquo;Add to Home Screen&rdquo;.</>,
+        <>Tap Add.</>,
       ]
     : [
         <>Tap the &#8942; menu at the top right of Chrome.</>,
-        <>Choose &ldquo;Install app&rdquo; or &ldquo;Add to Home screen&rdquo;.</>,
-        <>Confirm. LANDrop appears with the other apps.</>,
+        <>Choose &ldquo;Add to Home screen&rdquo; (not &ldquo;Install app&rdquo;, which can&rsquo;t work on a local network).</>,
+        <>Tap Add.</>,
       ];
   return (
-    <Sheet labelledBy="install-title" onClose={onClose}>
-      <h2 id="install-title" className="px-6 pb-1 pt-1 text-[20px] font-semibold tracking-tight">
-        Install LANDrop
-      </h2>
-      <p className="px-6 pb-3 text-[14px] text-muted">It opens full screen, with no browser bars.</p>
-      <ol className="flex flex-col gap-3 px-6 pb-3">
-        {steps.map((step, i) => (
-          <li key={i} className="flex items-start gap-3 text-[15px]">
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-chip-on text-[13px] font-semibold text-chip-on-ink">{i + 1}</span>
-            <span className="inline-flex flex-wrap items-center gap-1.5 pt-px">{step}</span>
-          </li>
-        ))}
-      </ol>
-      <div className="flex justify-end px-5 pt-2">
-        <button onClick={onClose} className={TEXT_BUTTON} autoFocus>
-          Got it
-        </button>
-      </div>
-    </Sheet>
+    <>
+      <Pointer ios={ios} />
+      <Sheet labelledBy="install-title" onClose={onClose}>
+        <h2 id="install-title" className="px-6 pb-1 pt-1 text-[20px] font-semibold tracking-tight">
+          Add LANDrop to your home screen
+        </h2>
+        <p className="px-6 pb-3 text-[14px] text-muted">Three taps, then it opens from its own icon.</p>
+        <ol className="flex flex-col gap-3 px-6 pb-3">
+          {steps.map((step, i) => (
+            <li key={i} className="flex items-start gap-3 text-[15px]">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-chip-on text-[13px] font-semibold text-chip-on-ink">{i + 1}</span>
+              <span className="inline-flex flex-wrap items-center gap-1.5 pt-px">{step}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="flex justify-end px-5 pt-2">
+          <button onClick={onClose} className={TEXT_BUTTON} autoFocus>
+            Got it
+          </button>
+        </div>
+      </Sheet>
+    </>
   );
 }

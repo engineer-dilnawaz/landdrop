@@ -1,7 +1,7 @@
 "use client";
 
 import { AvatarArt, defaultAvatar } from "./avatars";
-import { Add, ArrowDown2, Edit2, User, ArrowLeft, Back, Camera, Clock, Copy, Danger, Devices, DocumentDownload, DocumentText, EmojiHappy, Export, Folder2, Forward, Gallery, Import, InfoCircle, Lock1, MessageAdd1, Messages1, More, Notification, Pause, People, Play, Scan, SearchNormal1, Send2, Setting2, Sun1, Trash, Wifi } from "iconsax-react";
+import { Add, ArrowDown2, Edit2, User, ArrowLeft, Back, Camera, Clock, Copy, Danger, Devices, DocumentDownload, DocumentText, EmojiHappy, Export, Folder2, Forward, Gallery, Import, InfoCircle, Lock1, MessageAdd1, Messages1, More, Notification, Pause, People, Play, Refresh, Scan, SearchNormal1, Send2, Setting2, Sun1, Trash, Wifi } from "iconsax-react";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MAX_DEVICE_NAME_LENGTH, isAvailable, type Message } from "@landrop/protocol";
@@ -36,8 +36,9 @@ export function Sheet({
 }) {
   useEscape(onClose);
   return createPortal(
-    // Phones keep the bottom sheet. From tablet width up it's a centred modal over a blurred backdrop.
-    <div className="sheet-backdrop fixed inset-0 z-50 flex items-end justify-center bg-[#0b141a]/50 md:items-center md:bg-[#0b141a]/35 md:p-6 md:backdrop-blur-md dark:bg-black/60 dark:md:bg-black/45" onClick={onClose}>
+    // Phones keep the bottom sheet, sized to the part of the screen the keyboard leaves free so a field in it stays in view.
+    // From tablet width up it's a centred modal over a blurred backdrop.
+    <div className="sheet-backdrop fixed inset-x-0 top-[var(--vvt,0px)] z-50 flex h-[var(--vvh,100svh)] items-end justify-center bg-[#0b141a]/50 md:items-center md:bg-[#0b141a]/35 md:p-6 md:backdrop-blur-md dark:bg-black/60 dark:md:bg-black/45" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
@@ -334,6 +335,7 @@ export const SunIcon = icon(Sun1, 24);
 export const TrashIcon = icon(Trash, 20);
 export const ShareIcon = icon(Export, 24);
 export const InstallIcon = icon(Import, 24);
+export const RestartIcon = icon(Refresh, 24);
 export const SmileyIcon = icon(EmojiHappy, 24);
 export const PlayIcon = icon(Play, 22, "Bold");
 export const PauseIcon = icon(Pause, 22, "Bold");

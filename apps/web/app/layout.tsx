@@ -16,6 +16,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Android Chrome: the keyboard shrinks the page instead of covering the bottom of it, so the composer stays above it.
+  interactiveWidget: "resizes-content",
 };
 
 // The theme (system, light or dark) is a class on <html> and the chat looks (colour, text size,

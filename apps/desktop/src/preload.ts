@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("landrop", {
   update: {
     get: (): Promise<unknown> => ipcRenderer.invoke("update:get"),
     install: (): Promise<void> => ipcRenderer.invoke("update:install"),
+    download: (): Promise<void> => ipcRenderer.invoke("update:download"),
     onState: (listener: (state: unknown) => void): (() => void) => {
       const handler = (_event: unknown, state: unknown) => listener(state);
       ipcRenderer.on("update:state", handler);

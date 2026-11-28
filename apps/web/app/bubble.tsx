@@ -181,13 +181,13 @@ export function Bubble({
       >
         <ReplyIcon size={18} />
       </span>
-      {avatar && <span className="self-start">{avatar}</span>}
+      {avatar && <span className="shrink-0 self-start">{avatar}</span>}
       <div
         {...handlers}
         aria-label={own ? undefined : `${senderName}:`}
         style={{ transform: dx ? `translateX(${dx}px)` : undefined }}
         // "isolate" lets a live file's sparkles sit between the bubble colour and its content.
-        className={`group relative isolate max-w-[85%] touch-pan-y rounded-(--bubble-radius) text-(length:--chat-text) leading-(--chat-leading) select-none [-webkit-touch-callout:none] [-webkit-user-select:none] md:max-w-[65%] ${
+        className={`group relative isolate min-w-0 max-w-[85%] touch-pan-y rounded-(--bubble-radius) text-(length:--chat-text) leading-(--chat-leading) select-none [-webkit-touch-callout:none] [-webkit-user-select:none] md:max-w-[65%] ${
           dx ? "" : "transition-transform"
         } ${own ? "bg-bubble-out text-bubble-out-ink" : "bg-bubble-in text-foreground"} ${
           // Media fills the bubble with a thin frame; live media gets a wider one so its sparkles show.

@@ -11,10 +11,12 @@ const root = join(__dirname, "../../..");
  * (a rounded square with a margin); browser icons fill their square. Small icons get one bold wave,
  * as two thin ones blur together. `mono` is the black menu bar version, which macOS recolours.
  */
-function svg({ inset = 0, radius = 0, waves = 2, mono = false }) {
+function svg({ inset = 0, radius = 0, waves = 2, mono = false, fit = 1 }) {
   const tile = 1024 - inset * 2;
   // Drop and waves are drawn for the Mac grid's 824 tile, then scaled to fill this tile.
-  const k = tile / 824;
+  // `fit` shrinks them toward the middle, for icons a launcher crops to a circle.
+  const k = (tile / 824) * fit;
+  const offset = inset + (tile * (1 - fit)) / 2;
   const fg = mono ? "#000" : "#fff";
   const arcs =
     waves === 2
@@ -24,7 +26,7 @@ function svg({ inset = 0, radius = 0, waves = 2, mono = false }) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#047857"/></linearGradient></defs>
   ${mono ? "" : `<rect x="${inset}" y="${inset}" width="${tile}" height="${tile}" rx="${radius}" fill="url(#g)"/>`}
-  <g transform="translate(${inset} ${inset}) scale(${k})">
+  <g transform="translate(${offset} ${offset}) scale(${k})">
     <path d="M412 230 C412 230 285 400 285 485 A127 127 0 0 0 539 485 C539 400 412 230 412 230 Z" fill="${fg}"/>
     <g fill="none" stroke="${fg}" stroke-linecap="round" stroke-width="44">${arcs}</g>
   </g>
@@ -32,9 +34,11 @@ function svg({ inset = 0, radius = 0, waves = 2, mono = false }) {
 }
 
 const mac = svg({ inset: 100, radius: 185 });
-const favicon = svg({ radius: 230, waves: 1 });
-// iOS rounds home screen icons itself and needs an opaque square.
-const touch = svg({});
+const favicon = svg({ radius: 230, waves: 1, fit: 0.8 });
+// iOS rounds home screen icons itself and needs an opaque square; Android crops the same icon to a circle, so the artwork sits inside it.
+const touch = svg({ fit: 0.74 });
+// Android crops home screen icons to a circle or squircle: the drop and waves stay inside its safe middle.
+const maskable = svg({ fit: 0.66 });
 const tray = svg({ waves: 1, mono: true });
 
 /** One hidden window draws every size, top-left, and each is captured from there. */
@@ -64,6 +68,7 @@ app.whenReady().then(async () => {
   await render(touch, 180, "apps/web/app/apple-icon.png");
   await render(touch, 180, "site/apple-touch-icon.png");
   await render(touch, 180, "apps/site/public/apple-touch-icon.png");
+  await render(maskable, 512, "apps/web/public/icon-maskable-512.png");
   await render(tray, 18, "apps/desktop/assets/trayTemplate.png");
   await render(tray, 36, "apps/desktop/assets/trayTemplate@2x.png");
   app.quit();
